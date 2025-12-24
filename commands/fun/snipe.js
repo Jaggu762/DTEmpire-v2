@@ -10,7 +10,23 @@ module.exports = {
         const snipeType = args[0]?.toLowerCase();
         
         // Get snipes for this channel (in-memory)
-        const channelSnipes = client.snipes.get(message.channel.id) || [];
+        let channelSnipes = client.snipes.get(message.channel.id);
+        
+        // Handle both array and single object cases
+        if (!channelSnipes) {
+            channelSnipes = [];
+        } else if (!Array.isArray(channelSnipes)) {
+            // Convert single object to array
+            channelSnipes = [channelSnipes];
+        }
+        
+        // Filter out invalid snipes
+        channelSnipes = channelSnipes.filter(snipe => 
+            snipe && 
+            snipe.author && 
+            typeof snipe.timestamp === 'number' &&
+            snipe.timestamp > 0
+        );
         
         // Check for ghost pings (mentions that were deleted)
         let ghostPings = [];
@@ -35,6 +51,12 @@ module.exports = {
             }
             
             const ghost = ghostPings[0]; // Most recent ghost ping
+            
+            // Safety check
+            if (!ghost || !ghost.content) {
+                return message.reply('❌ Failed to retrieve ghost ping data.');
+            }
+            
             const mentions = extractMentions(ghost.content);
             
             const embed = new EmbedBuilder()
@@ -42,17 +64,18 @@ module.exports = {
                 .setTitle('👻 Ghost Ping Detected!')
                 .setDescription(`Someone pinged you and deleted the message!`)
                 .addFields(
-                    { name: '👤 Deleted by', value: `<@${ghost.author}>`, inline: true },
-                    { name: '📅 Time', value: `<t:${Math.floor(ghost.timestamp / 1000)}:R>`, inline: true },
+                    { name: '👤 Deleted by', value: `<@${ghost.author || 'Unknown'}>`, inline: true },
+                    { name: '📅 Time', value: ghost.timestamp ? `<t:${Math.floor(ghost.timestamp / 1000)}:R>` : 'Unknown', inline: true },
                     { name: '🔔 Mentions Found', value: mentions.join(', ') || 'Everyone/Here ping', inline: false }
                 );
             
             if (ghost.content && !ghost.content.includes('@everyone') && !ghost.content.includes('@here')) {
-                embed.addFields({ name: '📝 Message Content', value: ghost.content.substring(0, 500), inline: false });
+                const safeContent = ghost.content.substring(0, 500) || 'No content';
+                embed.addFields({ name: '📝 Message Content', value: safeContent, inline: false });
             }
             
-            embed.setFooter({ text: 'Ghost ping detected!', iconURL: 'https://i.imgur.com/7jblalF.png' })
-                .setTimestamp(ghost.timestamp);
+            embed.setFooter({ text: 'Ghost ping detected!' })
+                .setTimestamp(ghost.timestamp || Date.now());
             
             return message.reply({ embeds: [embed] });
             
@@ -67,17 +90,25 @@ module.exports = {
             
             for (let i = 0; i < maxSnipes; i++) {
                 const snipe = channelSnipes[i];
+                if (!snipe) continue; // Skip if undefined
+                
                 const embed = new EmbedBuilder()
                     .setColor('#ff0000')
                     .setTitle(`🗑️ Deleted Message #${i + 1}`)
-                    .setDescription(`Message by <@${snipe.author}>`)
+                    .setDescription(`Message by <@${snipe.author || 'Unknown'}>`)
                     .addFields(
                         { name: '📝 Content', value: snipe.content || 'No content', inline: false }
                     )
-                    .setFooter({ text: `Deleted ${formatTime(Date.now() - snipe.timestamp)} ago` })
-                    .setTimestamp(snipe.timestamp);
+                    .setFooter({ 
+                        text: `Deleted ${formatTime(Date.now() - (snipe.timestamp || Date.now()))} ago` 
+                    })
+                    .setTimestamp(snipe.timestamp || Date.now());
                 
                 embeds.push(embed);
+            }
+            
+            if (embeds.length === 0) {
+                return message.reply('❌ No valid deleted messages found!');
             }
             
             // Send first embed
@@ -95,12 +126,14 @@ module.exports = {
             }
             
             const snipeList = channelSnipes.map((snipe, index) => {
-                const timeAgo = formatTime(Date.now() - snipe.timestamp);
+                if (!snipe) return `${index + 1}. Invalid entry`;
+                
+                const timeAgo = formatTime(Date.now() - (snipe.timestamp || Date.now()));
                 const contentPreview = snipe.content ? 
                     (snipe.content.substring(0, 50) + (snipe.content.length > 50 ? '...' : '')) : 
                     'No content';
                 
-                return `${index + 1}. <@${snipe.author}>: "${contentPreview}" (${timeAgo} ago)`;
+                return `${index + 1}. <@${snipe.author || 'Unknown'}>: "${contentPreview}" (${timeAgo} ago)`;
             }).join('\n');
             
             const embed = new EmbedBuilder()
@@ -119,12 +152,18 @@ module.exports = {
             
             const snipe = channelSnipes[0]; // Most recent
             
+            // Safety check
+            if (!snipe || !snipe.author) {
+                return message.reply('❌ Failed to retrieve deleted message data.');
+            }
+            
             // Check if this was a ghost ping
-            const isGhostPing = snipe.content && (
-                snipe.content.includes('@everyone') || 
-                snipe.content.includes('@here') || 
-                snipe.content.includes(`<@${message.author.id}>`) ||
-                snipe.content.includes('<@&')
+            const content = snipe.content || '';
+            const isGhostPing = content && (
+                content.includes('@everyone') || 
+                content.includes('@here') || 
+                content.includes(`<@${message.author.id}>`) ||
+                content.includes('<@&')
             );
             
             const embed = new EmbedBuilder()
@@ -132,12 +171,12 @@ module.exports = {
                 .setTitle(isGhostPing ? '👻 Ghost Ping Detected!' : '🗑️ Deleted Message')
                 .setDescription(`Message deleted by <@${snipe.author}>`)
                 .addFields(
-                    { name: '📝 Content', value: snipe.content || 'No content', inline: false }
+                    { name: '📝 Content', value: content || 'No content', inline: false }
                 )
                 .setFooter({ 
-                    text: isGhostPing ? 'Someone pinged you and deleted it!' : `Deleted ${formatTime(Date.now() - snipe.timestamp)} ago`
+                    text: isGhostPing ? 'Someone pinged you and deleted it!' : `Deleted ${formatTime(Date.now() - (snipe.timestamp || Date.now()))} ago`
                 })
-                .setTimestamp(snipe.timestamp);
+                .setTimestamp(snipe.timestamp || Date.now());
             
             return message.reply({ embeds: [embed] });
         }
@@ -145,6 +184,8 @@ module.exports = {
 };
 
 function formatTime(ms) {
+    if (ms <= 0) return 'just now';
+    
     const seconds = Math.floor(ms / 1000);
     const minutes = Math.floor(seconds / 60);
     const hours = Math.floor(minutes / 60);

@@ -116,8 +116,12 @@ class Database {
         if (!this.data.guildConfigs[guildId]) {
             this.data.guildConfigs[guildId] = {
                 guild_id: guildId,
-                prefix: '.',
+                prefix: '^',
                 
+                // Add both fields for join/leave notifications
+                guild_join_channel: null,    // For bot join notifications
+                guild_leave_channel: null,   // For bot leave notifications (NEW)
+
                 // ========== AUTOROOM SETTINGS ==========
                 autoroom_creator: null,
                 autoroom_category: null,

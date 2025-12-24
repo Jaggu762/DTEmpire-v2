@@ -79,7 +79,18 @@ async function handleAnnounceCreate(message, args, client, db) {
         return message.reply('❌ Please separate title and description with `|`\nExample: `Title | Description`');
     }
     
-    const [title, description] = rest.split('|').map(s => s.trim());
+    const parts = rest.split('|').map(s => s.trim());
+    const title = parts[0];
+    const description = parts.slice(1).join('|').trim(); // Join back in case there are multiple pipes
+    
+    // Validate title and description
+    if (!title || title.length === 0) {
+        return message.reply('❌ Please provide a title for the announcement.');
+    }
+    
+    if (!description || description.length === 0) {
+        return message.reply('❌ Please provide a description for the announcement.');
+    }
     
     // Get channel
     const channel = message.mentions.channels.first();
@@ -100,8 +111,13 @@ async function handleAnnounceCreate(message, args, client, db) {
     const announceEmbed = new EmbedBuilder()
         .setColor('#ff00ff')
         .setTitle(`📢 ${title}`)
-        .setDescription(description)
-        .addFields(
+        .setDescription(description.length > 0 ? description : null) // Use null if empty
+        .setFooter({ text: 'DTEmpire Announcements' })
+        .setTimestamp();
+    
+    // Add fields only if we have a valid description
+    if (description && description.length > 0) {
+        announceEmbed.addFields(
             {
                 name: '📅 Date',
                 value: `<t:${Math.floor(Date.now() / 1000)}:F>`,
@@ -112,9 +128,8 @@ async function handleAnnounceCreate(message, args, client, db) {
                 value: message.author.toString(),
                 inline: true
             }
-        )
-        .setFooter({ text: 'DTEmpire Announcements' })
-        .setTimestamp();
+        );
+    }
     
     // Optional: Add image or thumbnail
     if (message.attachments.size > 0) {
@@ -141,15 +156,7 @@ async function handleAnnounceCreate(message, args, client, db) {
             embeds: [announceEmbed],
             components: [actionRow]
         });
-        /*
-        // Try to pin the announcement (requires Manage Messages permission)
-        try {
-            await announceMessage.pin();
-        } catch (pinError) {
-            console.log('Could not pin message:', pinError.message);
-            // Continue even if pinning fails
-        }
-        */
+        
         // Add reactions
         try {
             await announceMessage.react('📢');

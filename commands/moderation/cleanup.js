@@ -114,14 +114,16 @@ async function clearChannel(message, confirm) {
         });
     }
     
-    const loadingMsg = await message.reply('🧹 Clearing entire channel... This may take a while...');
+    // 1. Send initial status message
+    const loadingMsg = await message.channel.send('🧹 Clearing entire channel... This may take a while...');
     
     try {
         let deletedCount = 0;
         let hasMore = true;
+        // 2. Get the ID of the bot's own status message to protect it
+        const statusMessageIds = new Set([loadingMsg.id, message.id]);
         
         while (hasMore) {
-            // Fetch messages (max 100 at a time)
             const messages = await message.channel.messages.fetch({ limit: 100 });
             
             if (messages.size === 0) {
@@ -129,33 +131,37 @@ async function clearChannel(message, confirm) {
                 break;
             }
             
-            // Filter out messages older than 14 days
+            // 3. Filter out messages older than 14 days AND our own status messages
             const deletable = messages.filter(msg => {
                 const age = Date.now() - msg.createdTimestamp;
-                return age < 14 * 24 * 60 * 60 * 1000; // 14 days in milliseconds
+                const isRecent = age < 14 * 24 * 60 * 60 * 1000;
+                const isOurStatusMsg = statusMessageIds.has(msg.id);
+                return isRecent && !isOurStatusMsg;
             });
             
             if (deletable.size > 0) {
-                // Bulk delete
                 await message.channel.bulkDelete(deletable, true);
                 deletedCount += deletable.size;
-                
-                // Wait to avoid rate limits
+                // 4. Update the status message BEFORE the next fetch/delete cycle
+                await loadingMsg.edit(`🧹 Clearing... Deleted ${deletedCount} messages so far.`);
                 await new Promise(resolve => setTimeout(resolve, 1000));
             } else {
                 hasMore = false;
             }
         }
         
+        // 5. Final update on the safely preserved message
         await loadingMsg.edit(`✅ **Channel cleared!** Deleted ${deletedCount} messages.`);
         setTimeout(() => loadingMsg.delete(), 5000);
         
     } catch (error) {
         console.error('Channel clear error:', error);
-        message.reply('❌ Failed to clear channel. Some messages may be older than 14 days.');
+        // 6. Send error to the channel without replying to the (now deleted) command
+        message.channel.send('❌ Failed to clear channel. Some messages may be older than 14 days.');
+        // Optionally delete the loading message if it still exists
+        if (loadingMsg && !loadingMsg.deleted) loadingMsg.delete().catch(console.error);
     }
 }
-
 async function purgeMessages(message, args) {
     let count = parseInt(args[1] || args[0]) || 50;
     

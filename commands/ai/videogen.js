@@ -118,7 +118,7 @@ async function generateAndSendVideo(message, model, client, prompt) {
                     { name: '⏰ Expires In', value: response.data.expiresIn || '24 hours', inline: true },
                     { name: '🆔 Video ID', value: response.data.url.split('/').pop().replace('.mp4', ''), inline: true }
                 )
-                .setImage('https://i.imgur.com/9Nah5Fv.jpeg') // Optional: thumbnail
+                .setImage('https://i.imgur.com/exDGDGc.png') // Optional: thumbnail
                 .setFooter({ text: 'Powered by imggen-api.ankitgupta.com.np | DTEmpire v2.6.9' })
                 .setTimestamp();
             

@@ -111,16 +111,17 @@ class LoggingSystem {
     }
 
     // ========== TICKET LOGS ==========
-    async logTicketCreate(guildId, user, channel, type, reason) {
+    async logTicketClose(guildId, user, channel, type, reason, closedBy) {
         try {
             const embedData = {
-                title: '🎫 Ticket Created',
-                color: '#0061ff',
-                description: `A new ${type} ticket has been created`,
+                title: '🔒 Ticket Closed',
+                color: '#ff0000',
+                description: `A ${type} ticket has been closed`,
                 fields: [
                     { name: 'User', value: `${user.tag} (${user.id})`, inline: true },
                     { name: 'Ticket Type', value: type, inline: true },
-                    { name: 'Channel', value: channelMention(channel.id), inline: true },
+                    { name: 'Channel', value: channel.name, inline: true },
+                    { name: 'Closed By', value: `${closedBy.tag} (${closedBy.id})`, inline: true },
                     { name: 'Reason', value: reason || 'Not specified', inline: false }
                 ],
                 footer: { text: 'DTEmpire Ticket System' }
@@ -128,11 +129,11 @@ class LoggingSystem {
 
             const success = await this.logToChannel(guildId, 'ticket', embedData);
             if (success) {
-                console.log(`✅ Logged ticket create: ${user.tag} - ${type}`);
+                console.log(`✅ Logged ticket close: ${user.tag} - ${type}`);
             }
             return success;
         } catch (error) {
-            console.error('Ticket log error:', error);
+            console.error('Ticket close log error:', error);
             return false;
         }
     }
@@ -173,8 +174,8 @@ class LoggingSystem {
         return success;
     }
 
-    // ========== JOIN/LEAVE LOGS ==========
-    async logMemberJoin(guildId, member) {
+    // ========== JOIN/LEAVE LOGS WITH INVITE TRACKING ==========
+    async logMemberJoin(guildId, member, inviteData = null) {
         const embedData = {
             title: '🟢 Member Joined',
             color: Colors.Green,
@@ -189,11 +190,123 @@ class LoggingSystem {
             footer: { text: 'DTEmpire Member Tracking' }
         };
 
+        // Add invite information if available
+        if (inviteData && inviteData.inviter && inviteData.totalInvites !== undefined) {
+            embedData.fields.push(
+                { 
+                    name: '📨 Invited By', 
+                    value: `${userMention(inviteData.inviter.id)} (${inviteData.inviter.tag})`, 
+                    inline: true 
+                },
+                { 
+                    name: '🎯 Inviter\'s Total', 
+                    value: `${inviteData.totalInvites} members invited`, 
+                    inline: true 
+                }
+            );
+            
+            if (inviteData.inviteCode) {
+                embedData.fields.push(
+                    { 
+                        name: '🔗 Invite Code', 
+                        value: inlineCode(inviteData.inviteCode), 
+                        inline: true 
+                    }
+                );
+            }
+            
+            // Update description to include invite info
+            embedData.description = `${member.user.tag} has joined the server (invited by ${inviteData.inviter.tag})`;
+        } else if (this.client.inviteCache && this.client.inviteCache.has(guildId)) {
+            // Show that invite tracking is active but couldn't determine source
+            embedData.fields.push(
+                { 
+                    name: '📨 Invite Source', 
+                    value: 'Could not determine invite source\n*(Invite tracking is active)*', 
+                    inline: false 
+                }
+            );
+        }
+
         const success = await this.logToChannel(guildId, 'join_leave', embedData);
         if (success) {
-            console.log(`✅ Logged member join: ${member.user.tag}`);
+            if (inviteData && inviteData.inviter) {
+                console.log(`✅ Logged member join with invite: ${member.user.tag} invited by ${inviteData.inviter.tag} (${inviteData.totalInvites} total)`);
+            } else {
+                console.log(`✅ Logged member join: ${member.user.tag}`);
+            }
         }
         return success;
+    }
+
+    async logInviteUsage(guildId, member, usedInvite, totalInvites) {
+        try {
+            // First log to join-leave channel
+            const joinLeaveSuccess = await this.logMemberJoin(guildId, member, {
+                inviter: usedInvite.inviter,
+                totalInvites: totalInvites,
+                inviteCode: usedInvite.code
+            });
+
+            // Also log to invite channel separately if different
+            const config = await this.db.getGuildConfig(guildId);
+            if (config?.invite_log_channel && config.invite_log_channel !== config.join_leave_log_channel) {
+                const embedData = {
+                    title: '📨 Invite Used',
+                    color: Colors.Blue,
+                    description: `**${member.user.tag}** joined using an invite`,
+                    fields: [
+                        { name: '👤 New Member', value: userMention(member.id), inline: true },
+                        { name: '🆔 User ID', value: inlineCode(member.id), inline: true },
+                        { name: '👥 Invited By', value: userMention(usedInvite.inviter.id), inline: true },
+                        { name: '🔗 Invite Code', value: inlineCode(usedInvite.code), inline: true },
+                        { name: '📊 Inviter\'s Total', value: `${totalInvites} members invited`, inline: true },
+                        { name: '📝 Channel', value: usedInvite.channel ? channelMention(usedInvite.channel.id) : 'Unknown', inline: true },
+                        { name: '👥 Member Count', value: inlineCode(member.guild.memberCount.toString()), inline: true }
+                    ],
+                    thumbnail: member.user.displayAvatarURL(),
+                    footer: { text: 'DTEmpire Invite Tracking System' }
+                };
+
+                await this.logToChannel(guildId, 'invite', embedData);
+            }
+
+            return joinLeaveSuccess;
+        } catch (error) {
+            console.error('Log invite usage error:', error);
+            return false;
+        }
+    }
+
+    // Helper method to get invite stats for a user
+    async getInviteStats(guildId, userId) {
+        try {
+            // Check in-memory tracker first
+            if (this.client.inviteTrackers) {
+                const guildTrackers = this.client.inviteTrackers.get(guildId);
+                if (guildTrackers) {
+                    const count = guildTrackers.get(userId);
+                    if (count !== undefined) {
+                        return count;
+                    }
+                }
+            }
+            
+            // Check database
+            if (this.db && this.db.getInviteStats) {
+                try {
+                    const stats = await this.db.getInviteStats(guildId, userId);
+                    return stats?.invite_count || 0;
+                } catch (dbError) {
+                    console.error('Database invite stats error:', dbError);
+                }
+            }
+            
+            return 0;
+        } catch (error) {
+            console.error('Get invite stats error:', error);
+            return 0;
+        }
     }
 
     async logMemberLeave(guildId, member) {

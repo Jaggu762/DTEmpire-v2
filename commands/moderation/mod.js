@@ -1,10 +1,12 @@
 // commands/moderation/mod.js - Main moderation command
-const { EmbedBuilder, PermissionFlagsBits } = require('discord.js');
+const { EmbedBuilder, PermissionFlagsBits, ChannelType } = require('discord.js');
 const fs = require('fs').promises;
 const path = require('path');
 
 // Load bad words
 const BAD_WORDS_FILE = path.join(__dirname, '../../data/bad-words.json');
+// Load link channels config
+const LINK_CHANNELS_FILE = path.join(__dirname, '../../data/link-channels.json');
 
 // Track user warnings for auto-mod violations
 const userWarningCounts = new Map();
@@ -67,7 +69,13 @@ module.exports = {
                 break;
             case 'removerole':
                 await handleRemoveRole(message, args.slice(1), client);
-                break;    
+                break;
+            case 'linkchannel':
+                await handleLinkChannel(message, args.slice(1));
+                break;
+            case 'linkprotection':
+                await handleLinkProtection(message, args.slice(1));
+                break;
             case 'help':
                 const helpEmbed = createHelpEmbed();
                 await message.reply({ embeds: [helpEmbed] });
@@ -93,7 +101,9 @@ function createHelpEmbed() {
                     '`^mod kick @user [reason]` - Kick a user',
                     '`^mod mute @user [time] [reason]` - Mute a user (e.g., 1h, 30m, 1d)',
                     '`^mod unmute @user` - Unmute a user',
-                    '`^mod warn @user [reason]` - Warn a user'
+                    '`^mod warn @user [reason]` - Warn a user',
+                    '`^mod addrole {role} @user` - Add role to user',
+                    '`^mod removerole {role} @user` - Remove role from user'
                 ].join('\n'),
                 inline: false
             },
@@ -106,6 +116,18 @@ function createHelpEmbed() {
                 inline: false
             },
             {
+                name: '🔗 Link Protection',
+                value: [
+                    '`^mod linkchannel #channel` - Allow links in specific channel',
+                    '`^mod linkchannel list` - List all link-allowed channels',
+                    '`^mod linkchannel remove #channel` - Remove link permission from channel',
+                    '`^mod linkprotection enable` - Enable link protection',
+                    '`^mod linkprotection disable` - Disable link protection',
+                    '`^mod linkprotection settings` - Show link protection settings'
+                ].join('\n'),
+                inline: false
+            },
+            {
                 name: '🚫 Auto-Moderation',
                 value: [
                     '`^mod badwords list` - Show banned words',
@@ -114,7 +136,9 @@ function createHelpEmbed() {
                     '`^mod badwords enable` - Enable auto-mod',
                     '`^mod badwords disable` - Disable auto-mod',
                     '`^mod badwords warnings @user` - Check user warnings',
-                    '`^mod badwords resetwarn @user` - Reset user warnings'
+                    '`^mod badwords resetwarn @user` - Reset user warnings',
+                    '`^mod forcesync` - Force sync global bad words',
+                    '`^mod test` - Test auto-mod system'
                 ].join('\n'),
                 inline: false
             },
@@ -241,62 +265,6 @@ async function handleKick(message, args, client) {
     } catch (error) {
         console.error('Kick error:', error);
         message.reply('❌ Failed to kick user.');
-    }
-}
-
-async function forceSyncBadWords(message) {
-    try {
-        // Load global words
-        const data = await loadBadWords();
-        const guildId = message.guild.id;
-        
-        if (!data.default) {
-            return message.reply('❌ No global bad words configured.');
-        }
-        
-        // Get all global words
-        const globalWords = [];
-        if (data.default.en) globalWords.push(...data.default.en);
-        if (data.default.hi) globalWords.push(...data.default.hi);
-        if (data.default.ne) globalWords.push(...data.default.ne);
-        
-        const uniqueWords = [...new Set(globalWords)];
-        
-        // Force update guild
-        data[guildId] = {
-            words: uniqueWords,
-            enabled: true
-        };
-        
-        await saveBadWords(data);
-        
-        const embed = new EmbedBuilder()
-            .setColor('#00ff00')
-            .setTitle('🔄 Force Sync Complete')
-            .setDescription(`Force synced ${uniqueWords.length} global bad words to this server`)
-            .addFields(
-                { name: 'Total Words', value: `${uniqueWords.length} words`, inline: true },
-                { name: 'Auto-mod Status', value: '✅ ENABLED', inline: true }
-            )
-            .setFooter({ text: 'Test auto-mod with ^mod test' });
-        
-        await message.reply({ embeds: [embed] });
-        
-        // Show first 20 words
-        if (uniqueWords.length > 0) {
-            const sample = uniqueWords.slice(0, 20).map((w, i) => `${i + 1}. \`${w}\``).join('\n');
-            const sampleEmbed = new EmbedBuilder()
-                .setColor('#ffff00')
-                .setTitle('📋 Synced Bad Words (first 20)')
-                .setDescription(sample)
-                .setFooter({ text: `${uniqueWords.length} total words synced` });
-            
-            message.channel.send({ embeds: [sampleEmbed] });
-        }
-        
-    } catch (error) {
-        console.error('Force sync error:', error);
-        message.reply('❌ Failed to force sync bad words.');
     }
 }
 
@@ -435,174 +403,6 @@ async function handleUnmute(message, args, client) {
     }
 }
 
-async function testAutoMod(message) {
-    try {
-        const data = await loadBadWords();
-        const guildId = message.guild.id;
-        
-        if (!data[guildId]) {
-            return message.reply('❌ No bad words configured for this server. Use `^mod badwords sync` first.');
-        }
-        
-        const words = data[guildId].words || [];
-        const enabled = data[guildId].enabled !== false;
-        
-        const embed = new EmbedBuilder()
-            .setColor(enabled ? '#00ff00' : '#ff0000')
-            .setTitle('🔍 Auto-Mod Test')
-            .setDescription(enabled ? '✅ Auto-mod is ENABLED' : '❌ Auto-mod is DISABLED')
-            .addFields(
-                { name: 'Total Bad Words', value: `${words.length} words`, inline: true },
-                { name: 'Guild ID', value: guildId, inline: true },
-                { name: 'Test Words', value: 'Try typing: `fuck`, `shit`, `randi`, `muji`', inline: false }
-            );
-        
-        // Show sample bad words
-        if (words.length > 0) {
-            const sampleWords = words.slice(0, 10);
-            embed.addFields({ 
-                name: 'Sample Bad Words (first 10)', 
-                value: sampleWords.map(w => `\`${w}\``).join(', '),
-                inline: false 
-            });
-        }
-        
-        await message.reply({ embeds: [embed] });
-        
-        // Test message
-        const testMessage = await message.channel.send('Testing auto-mod... Type a bad word to see if it gets deleted.');
-        setTimeout(() => testMessage.delete(), 10000);
-        
-    } catch (error) {
-        console.error('Test auto-mod error:', error);
-        message.reply('❌ Failed to test auto-mod.');
-    }
-}
-// ========== ADD ROLE COMMAND ==========
-async function handleAddRole(message, args, client) {
-    if (!message.member.permissions.has(PermissionFlagsBits.ManageRoles)) {
-        return message.reply('❌ You need **Manage Roles** permission.');
-    }
-    
-    if (args.length < 2) {
-        return message.reply('❌ Usage: `^mod addrole {role name} @username`\nExample: `^mod addrole VIP @user`');
-    }
-    
-    const roleName = args[0];
-    const user = message.mentions.users.first();
-    
-    if (!user) {
-        return message.reply('❌ Please mention a user to add the role to.');
-    }
-    
-    try {
-        // Find role by name
-        const role = message.guild.roles.cache.find(r => 
-            r.name.toLowerCase() === roleName.toLowerCase()
-        );
-        
-        if (!role) {
-            return message.reply(`❌ Role \`${roleName}\` not found.`);
-        }
-        
-        // Check if bot can manage this role
-        if (role.position >= message.guild.members.me.roles.highest.position) {
-            return message.reply('❌ I cannot manage this role (it\'s higher than my highest role).');
-        }
-        
-        const member = await message.guild.members.fetch(user.id);
-        
-        if (member.roles.cache.has(role.id)) {
-            return message.reply(`❌ ${user.tag} already has the ${role.name} role.`);
-        }
-        
-        await member.roles.add(role, `Added by ${message.author.tag}`);
-        
-        const embed = new EmbedBuilder()
-            .setColor(role.color || '#00ff00')
-            .setTitle('✅ Role Added')
-            .addFields(
-                { name: 'User', value: user.tag, inline: true },
-                { name: 'Role', value: role.name, inline: true },
-                { name: 'Added by', value: message.author.tag, inline: true }
-            )
-            .setTimestamp();
-        
-        await message.reply({ embeds: [embed] });
-        
-        // Log the action
-        if (client.loggingSystem) {
-            await client.loggingSystem.logRoleAdd(message.guild.id, member, role, message.author);
-        }
-        
-    } catch (error) {
-        console.error('Add role error:', error);
-        message.reply('❌ Failed to add role. Check my permissions.');
-    }
-}
-
-// ========== REMOVE ROLE COMMAND ==========
-async function handleRemoveRole(message, args, client) {
-    if (!message.member.permissions.has(PermissionFlagsBits.ManageRoles)) {
-        return message.reply('❌ You need **Manage Roles** permission.');
-    }
-    
-    if (args.length < 2) {
-        return message.reply('❌ Usage: `^mod removerole {role name} @username`\nExample: `^mod removerole VIP @user`');
-    }
-    
-    const roleName = args[0];
-    const user = message.mentions.users.first();
-    
-    if (!user) {
-        return message.reply('❌ Please mention a user to remove the role from.');
-    }
-    
-    try {
-        // Find role by name
-        const role = message.guild.roles.cache.find(r => 
-            r.name.toLowerCase() === roleName.toLowerCase()
-        );
-        
-        if (!role) {
-            return message.reply(`❌ Role \`${roleName}\` not found.`);
-        }
-        
-        // Check if bot can manage this role
-        if (role.position >= message.guild.members.me.roles.highest.position) {
-            return message.reply('❌ I cannot manage this role (it\'s higher than my highest role).');
-        }
-        
-        const member = await message.guild.members.fetch(user.id);
-        
-        if (!member.roles.cache.has(role.id)) {
-            return message.reply(`❌ ${user.tag} doesn't have the ${role.name} role.`);
-        }
-        
-        await member.roles.remove(role, `Removed by ${message.author.tag}`);
-        
-        const embed = new EmbedBuilder()
-            .setColor('#ff5500')
-            .setTitle('🚫 Role Removed')
-            .addFields(
-                { name: 'User', value: user.tag, inline: true },
-                { name: 'Role', value: role.name, inline: true },
-                { name: 'Removed by', value: message.author.tag, inline: true }
-            )
-            .setTimestamp();
-        
-        await message.reply({ embeds: [embed] });
-        
-        // Log the action
-        if (client.loggingSystem) {
-            await client.loggingSystem.logRoleRemove(message.guild.id, member, role, message.author);
-        }
-        
-    } catch (error) {
-        console.error('Remove role error:', error);
-        message.reply('❌ Failed to remove role. Check my permissions.');
-    }
-}
 // ========== WARN COMMAND ==========
 async function handleWarn(message, args, client) {
     if (!message.member.permissions.has(PermissionFlagsBits.ManageMessages)) {
@@ -988,44 +788,560 @@ async function handleLogs(message, args) {
     }
 }
 
-// ========== UTILITY FUNCTIONS ==========
-
-function parseTime(timeStr) {
-    const regex = /^(\d+)([mhd])$/i;
-    const match = timeStr.match(regex);
-    
-    if (!match) return null;
-    
-    const amount = parseInt(match[1]);
-    const unit = match[2].toLowerCase();
-    
-    switch (unit) {
-        case 'm': return amount * 60 * 1000; // minutes
-        case 'h': return amount * 60 * 60 * 1000; // hours
-        case 'd': return amount * 24 * 60 * 60 * 1000; // days
-        default: return null;
+// ========== ADD ROLE COMMAND ==========
+async function handleAddRole(message, args, client) {
+    if (!message.member.permissions.has(PermissionFlagsBits.ManageRoles)) {
+        return message.reply('❌ You need **Manage Roles** permission.');
     }
-}
-
-function formatTime(ms) {
-    if (ms < 60000) return `${Math.floor(ms / 1000)}s`;
-    if (ms < 3600000) return `${Math.floor(ms / 60000)}m`;
-    if (ms < 86400000) return `${Math.floor(ms / 3600000)}h`;
-    return `${Math.floor(ms / 86400000)}d`;
-}
-
-async function loadBadWords() {
+    
+    if (args.length < 2) {
+        return message.reply('❌ Usage: `^mod addrole {role name} @username`\nExample: `^mod addrole VIP @user`');
+    }
+    
+    const roleName = args[0];
+    const user = message.mentions.users.first();
+    
+    if (!user) {
+        return message.reply('❌ Please mention a user to add the role to.');
+    }
+    
     try {
-        const data = await fs.readFile(BAD_WORDS_FILE, 'utf8');
-        return JSON.parse(data);
+        // Find role by name
+        const role = message.guild.roles.cache.find(r => 
+            r.name.toLowerCase() === roleName.toLowerCase()
+        );
+        
+        if (!role) {
+            return message.reply(`❌ Role \`${roleName}\` not found.`);
+        }
+        
+        // Check if bot can manage this role
+        if (role.position >= message.guild.members.me.roles.highest.position) {
+            return message.reply('❌ I cannot manage this role (it\'s higher than my highest role).');
+        }
+        
+        const member = await message.guild.members.fetch(user.id);
+        
+        if (member.roles.cache.has(role.id)) {
+            return message.reply(`❌ ${user.tag} already has the ${role.name} role.`);
+        }
+        
+        await member.roles.add(role, `Added by ${message.author.tag}`);
+        
+        const embed = new EmbedBuilder()
+            .setColor(role.color || '#00ff00')
+            .setTitle('✅ Role Added')
+            .addFields(
+                { name: 'User', value: user.tag, inline: true },
+                { name: 'Role', value: role.name, inline: true },
+                { name: 'Added by', value: message.author.tag, inline: true }
+            )
+            .setTimestamp();
+        
+        await message.reply({ embeds: [embed] });
+        
+        // Log the action
+        if (client.loggingSystem) {
+            await client.loggingSystem.logRoleAdd(message.guild.id, member, role, message.author);
+        }
+        
     } catch (error) {
-        // Return empty object if file doesn't exist
-        return {};
+        console.error('Add role error:', error);
+        message.reply('❌ Failed to add role. Check my permissions.');
     }
 }
 
-async function saveBadWords(data) {
-    await fs.writeFile(BAD_WORDS_FILE, JSON.stringify(data, null, 2));
+// ========== REMOVE ROLE COMMAND ==========
+async function handleRemoveRole(message, args, client) {
+    if (!message.member.permissions.has(PermissionFlagsBits.ManageRoles)) {
+        return message.reply('❌ You need **Manage Roles** permission.');
+    }
+    
+    if (args.length < 2) {
+        return message.reply('❌ Usage: `^mod removerole {role name} @username`\nExample: `^mod removerole VIP @user`');
+    }
+    
+    const roleName = args[0];
+    const user = message.mentions.users.first();
+    
+    if (!user) {
+        return message.reply('❌ Please mention a user to remove the role from.');
+    }
+    
+    try {
+        // Find role by name
+        const role = message.guild.roles.cache.find(r => 
+            r.name.toLowerCase() === roleName.toLowerCase()
+        );
+        
+        if (!role) {
+            return message.reply(`❌ Role \`${roleName}\` not found.`);
+        }
+        
+        // Check if bot can manage this role
+        if (role.position >= message.guild.members.me.roles.highest.position) {
+            return message.reply('❌ I cannot manage this role (it\'s higher than my highest role).');
+        }
+        
+        const member = await message.guild.members.fetch(user.id);
+        
+        if (!member.roles.cache.has(role.id)) {
+            return message.reply(`❌ ${user.tag} doesn't have the ${role.name} role.`);
+        }
+        
+        await member.roles.remove(role, `Removed by ${message.author.tag}`);
+        
+        const embed = new EmbedBuilder()
+            .setColor('#ff5500')
+            .setTitle('🚫 Role Removed')
+            .addFields(
+                { name: 'User', value: user.tag, inline: true },
+                { name: 'Role', value: role.name, inline: true },
+                { name: 'Removed by', value: message.author.tag, inline: true }
+            )
+            .setTimestamp();
+        
+        await message.reply({ embeds: [embed] });
+        
+        // Log the action
+        if (client.loggingSystem) {
+            await client.loggingSystem.logRoleRemove(message.guild.id, member, role, message.author);
+        }
+        
+    } catch (error) {
+        console.error('Remove role error:', error);
+        message.reply('❌ Failed to remove role. Check my permissions.');
+    }
+}
+
+// ========== FORCE SYNC BAD WORDS ==========
+async function forceSyncBadWords(message) {
+    try {
+        // Load global words
+        const data = await loadBadWords();
+        const guildId = message.guild.id;
+        
+        if (!data.default) {
+            return message.reply('❌ No global bad words configured.');
+        }
+        
+        // Get all global words
+        const globalWords = [];
+        if (data.default.en) globalWords.push(...data.default.en);
+        if (data.default.hi) globalWords.push(...data.default.hi);
+        if (data.default.ne) globalWords.push(...data.default.ne);
+        
+        const uniqueWords = [...new Set(globalWords)];
+        
+        // Force update guild
+        data[guildId] = {
+            words: uniqueWords,
+            enabled: true
+        };
+        
+        await saveBadWords(data);
+        
+        const embed = new EmbedBuilder()
+            .setColor('#00ff00')
+            .setTitle('🔄 Force Sync Complete')
+            .setDescription(`Force synced ${uniqueWords.length} global bad words to this server`)
+            .addFields(
+                { name: 'Total Words', value: `${uniqueWords.length} words`, inline: true },
+                { name: 'Auto-mod Status', value: '✅ ENABLED', inline: true }
+            )
+            .setFooter({ text: 'Test auto-mod with ^mod test' });
+        
+        await message.reply({ embeds: [embed] });
+        
+        // Show first 20 words
+        if (uniqueWords.length > 0) {
+            const sample = uniqueWords.slice(0, 20).map((w, i) => `${i + 1}. \`${w}\``).join('\n');
+            const sampleEmbed = new EmbedBuilder()
+                .setColor('#ffff00')
+                .setTitle('📋 Synced Bad Words (first 20)')
+                .setDescription(sample)
+                .setFooter({ text: `${uniqueWords.length} total words synced` });
+            
+            message.channel.send({ embeds: [sampleEmbed] });
+        }
+        
+    } catch (error) {
+        console.error('Force sync error:', error);
+        message.reply('❌ Failed to force sync bad words.');
+    }
+}
+
+// ========== TEST AUTO-MOD ==========
+async function testAutoMod(message) {
+    try {
+        const data = await loadBadWords();
+        const guildId = message.guild.id;
+        
+        if (!data[guildId]) {
+            return message.reply('❌ No bad words configured for this server. Use `^mod badwords sync` first.');
+        }
+        
+        const words = data[guildId].words || [];
+        const enabled = data[guildId].enabled !== false;
+        
+        const embed = new EmbedBuilder()
+            .setColor(enabled ? '#00ff00' : '#ff0000')
+            .setTitle('🔍 Auto-Mod Test')
+            .setDescription(enabled ? '✅ Auto-mod is ENABLED' : '❌ Auto-mod is DISABLED')
+            .addFields(
+                { name: 'Total Bad Words', value: `${words.length} words`, inline: true },
+                { name: 'Guild ID', value: guildId, inline: true },
+                { name: 'Test Words', value: 'Try typing: `fuck`, `shit`, `randi`, `muji`', inline: false }
+            );
+        
+        // Show sample bad words
+        if (words.length > 0) {
+            const sampleWords = words.slice(0, 10);
+            embed.addFields({ 
+                name: 'Sample Bad Words (first 10)', 
+                value: sampleWords.map(w => `\`${w}\``).join(', '),
+                inline: false 
+            });
+        }
+        
+        await message.reply({ embeds: [embed] });
+        
+        // Test message
+        const testMessage = await message.channel.send('Testing auto-mod... Type a bad word to see if it gets deleted.');
+        setTimeout(() => testMessage.delete(), 10000);
+        
+    } catch (error) {
+        console.error('Test auto-mod error:', error);
+        message.reply('❌ Failed to test auto-mod.');
+    }
+}
+
+// ========== LINK PROTECTION FUNCTIONS ==========
+
+async function handleLinkChannel(message, args) {
+    if (args.length === 0) {
+        return showLinkChannels(message);
+    }
+    
+    const subcmd = args[0].toLowerCase();
+    
+    switch (subcmd) {
+        case 'add':
+            await addLinkChannel(message, args.slice(1));
+            break;
+        case 'remove':
+            await removeLinkChannel(message, args.slice(1));
+            break;
+        case 'list':
+            await showLinkChannels(message);
+            break;
+        default:
+            // If no subcommand, assume it's a channel mention
+            await addLinkChannel(message, args);
+    }
+}
+
+async function addLinkChannel(message, args) {
+    const channel = message.mentions.channels.first();
+    
+    if (!channel) {
+        return message.reply('❌ Please mention a channel. Usage: `^mod linkchannel #channel-name`');
+    }
+    
+    try {
+        const config = await loadLinkConfig();
+        const guildId = message.guild.id;
+        
+        // Initialize guild config if doesn't exist
+        if (!config[guildId]) {
+            config[guildId] = {
+                enabled: true,
+                channels: [],
+                exemptRoles: [],
+                exemptUsers: []
+            };
+        }
+        
+        // Check if channel already exists
+        if (config[guildId].channels.includes(channel.id)) {
+            return message.reply(`✅ Links are already allowed in ${channel.toString()}`);
+        }
+        
+        // Add channel
+        config[guildId].channels.push(channel.id);
+        await saveLinkConfig(config);
+        
+        const embed = new EmbedBuilder()
+            .setColor('#00ff00')
+            .setTitle('✅ Link Channel Added')
+            .addFields(
+                { name: 'Channel', value: channel.toString(), inline: true },
+                { name: 'ID', value: channel.id, inline: true },
+                { name: 'Status', value: '✅ Links allowed', inline: true }
+            )
+            .setFooter({ text: `Link protection is ${config[guildId].enabled ? 'ENABLED' : 'DISABLED'}` })
+            .setTimestamp();
+        
+        await message.reply({ embeds: [embed] });
+        
+    } catch (error) {
+        console.error('Add link channel error:', error);
+        message.reply('❌ Failed to add link channel.');
+    }
+}
+
+async function removeLinkChannel(message, args) {
+    const channel = message.mentions.channels.first();
+    
+    if (!channel) {
+        return message.reply('❌ Please mention a channel. Usage: `^mod linkchannel remove #channel-name`');
+    }
+    
+    try {
+        const config = await loadLinkConfig();
+        const guildId = message.guild.id;
+        
+        if (!config[guildId] || !config[guildId].channels.includes(channel.id)) {
+            return message.reply(`❌ Links are not allowed in ${channel.toString()} (or no config found)`);
+        }
+        
+        // Remove channel
+        config[guildId].channels = config[guildId].channels.filter(id => id !== channel.id);
+        await saveLinkConfig(config);
+        
+        const embed = new EmbedBuilder()
+            .setColor('#ff9900')
+            .setTitle('🚫 Link Channel Removed')
+            .addFields(
+                { name: 'Channel', value: channel.toString(), inline: true },
+                { name: 'ID', value: channel.id, inline: true },
+                { name: 'Status', value: '❌ Links blocked', inline: true }
+            )
+            .setFooter({ text: 'Links will now be auto-deleted in this channel' })
+            .setTimestamp();
+        
+        await message.reply({ embeds: [embed] });
+        
+    } catch (error) {
+        console.error('Remove link channel error:', error);
+        message.reply('❌ Failed to remove link channel.');
+    }
+}
+
+async function showLinkChannels(message) {
+    try {
+        const config = await loadLinkConfig();
+        const guildId = message.guild.id;
+        
+        if (!config[guildId] || config[guildId].channels.length === 0) {
+            return message.reply('❌ No channels are allowed to send links. Use `^mod linkchannel #channel` to add one.');
+        }
+        
+        const enabled = config[guildId].enabled !== false;
+        const channelIds = config[guildId].channels;
+        
+        // Fetch channels
+        const channels = [];
+        for (const channelId of channelIds) {
+            const channel = message.guild.channels.cache.get(channelId);
+            if (channel) {
+                channels.push(channel);
+            }
+        }
+        
+        const embed = new EmbedBuilder()
+            .setColor(enabled ? '#00ff00' : '#ff0000')
+            .setTitle('🔗 Link-Allowed Channels')
+            .setDescription(enabled ? '✅ **Link Protection is ENABLED**' : '❌ **Link Protection is DISABLED**')
+            .addFields({
+                name: `Allowed Channels (${channels.length})`,
+                value: channels.length > 0 
+                    ? channels.map(ch => `${ch.toString()} (${ch.name})`).join('\n')
+                    : 'No channels found'
+            })
+            .setFooter({ text: 'Links are auto-deleted in all other channels' })
+            .setTimestamp();
+        
+        await message.reply({ embeds: [embed] });
+        
+    } catch (error) {
+        console.error('Show link channels error:', error);
+        message.reply('❌ Failed to load link channel settings.');
+    }
+}
+
+async function handleLinkProtection(message, args) {
+    if (args.length === 0) {
+        return showLinkProtectionSettings(message);
+    }
+    
+    const subcmd = args[0].toLowerCase();
+    
+    switch (subcmd) {
+        case 'enable':
+            await toggleLinkProtection(message, true);
+            break;
+        case 'disable':
+            await toggleLinkProtection(message, false);
+            break;
+        case 'settings':
+            await showLinkProtectionSettings(message);
+            break;
+        default:
+            message.reply('❌ Unknown subcommand. Use: enable, disable, settings');
+    }
+}
+
+async function toggleLinkProtection(message, enabled) {
+    try {
+        const config = await loadLinkConfig();
+        const guildId = message.guild.id;
+        
+        // Initialize if doesn't exist
+        if (!config[guildId]) {
+            config[guildId] = {
+                enabled: enabled,
+                channels: [],
+                exemptRoles: [],
+                exemptUsers: []
+            };
+        } else {
+            config[guildId].enabled = enabled;
+        }
+        
+        await saveLinkConfig(config);
+        
+        const embed = new EmbedBuilder()
+            .setColor(enabled ? '#00ff00' : '#ff0000')
+            .setTitle(enabled ? '✅ Link Protection Enabled' : '❌ Link Protection Disabled')
+            .setDescription(enabled 
+                ? 'Links will be auto-deleted in all channels except those explicitly allowed.'
+                : 'Link protection is now disabled. Users can send links anywhere.'
+            )
+            .addFields({
+                name: 'Note',
+                value: enabled 
+                    ? 'Use `^mod linkchannel #channel` to allow links in specific channels'
+                    : 'Enable protection again with `^mod linkprotection enable`'
+            })
+            .setTimestamp();
+        
+        await message.reply({ embeds: [embed] });
+        
+    } catch (error) {
+        console.error('Toggle link protection error:', error);
+        message.reply('❌ Failed to update link protection settings.');
+    }
+}
+
+async function showLinkProtectionSettings(message) {
+    try {
+        const config = await loadLinkConfig();
+        const guildId = message.guild.id;
+        
+        if (!config[guildId]) {
+            return message.reply('❌ Link protection is not configured for this server. Use `^mod linkprotection enable` to enable it.');
+        }
+        
+        const settings = config[guildId];
+        const enabled = settings.enabled !== false;
+        const channelCount = settings.channels.length;
+        const exemptRoleCount = settings.exemptRoles.length;
+        const exemptUserCount = settings.exemptUsers.length;
+        
+        // Fetch allowed channels
+        const allowedChannels = [];
+        for (const channelId of settings.channels.slice(0, 10)) { // Show first 10
+            const channel = message.guild.channels.cache.get(channelId);
+            if (channel) {
+                allowedChannels.push(channel.toString());
+            }
+        }
+        
+        const embed = new EmbedBuilder()
+            .setColor(enabled ? '#00ff00' : '#ff0000')
+            .setTitle('⚙️ Link Protection Settings')
+            .addFields(
+                { name: 'Status', value: enabled ? '✅ ENABLED' : '❌ DISABLED', inline: true },
+                { name: 'Allowed Channels', value: `${channelCount} channel(s)`, inline: true },
+                { name: 'Exempt Roles', value: `${exemptRoleCount} role(s)`, inline: true },
+                { name: 'Exempt Users', value: `${exemptUserCount} user(s)`, inline: true }
+            );
+        
+        if (allowedChannels.length > 0) {
+            embed.addFields({
+                name: `Allowed Channels (first ${allowedChannels.length})`,
+                value: allowedChannels.join('\n'),
+                inline: false
+            });
+        }
+        
+        if (settings.channels.length > 10) {
+            embed.setFooter({ text: `${settings.channels.length - 10} more channels not shown. Use ^mod linkchannel list` });
+        }
+        
+        await message.reply({ embeds: [embed] });
+        
+    } catch (error) {
+        console.error('Show link protection settings error:', error);
+        message.reply('❌ Failed to load link protection settings.');
+    }
+}
+
+// ========== LINK PROTECTION CHECK FUNCTION ==========
+async function checkLinks(message) {
+    try {
+        const config = await loadLinkConfig();
+        const guildId = message.guild.id;
+        
+        // If no config or disabled, allow all links
+        if (!config[guildId] || config[guildId].enabled === false) {
+            return false;
+        }
+        
+        const settings = config[guildId];
+        
+        // Check if user is exempt (bot, admin, exempt role/user)
+        if (message.author.bot) return false;
+        if (message.member.permissions.has(PermissionFlagsBits.Administrator)) return false;
+        if (message.member.permissions.has(PermissionFlagsBits.ManageMessages)) return false;
+        
+        // Check exempt roles
+        if (settings.exemptRoles) {
+            for (const roleId of settings.exemptRoles) {
+                if (message.member.roles.cache.has(roleId)) return false;
+            }
+        }
+        
+        // Check exempt users
+        if (settings.exemptUsers && settings.exemptUsers.includes(message.author.id)) {
+            return false;
+        }
+        
+        // Check if channel is allowed
+        if (settings.channels && settings.channels.includes(message.channel.id)) {
+            return false;
+        }
+        
+        // Check for links in message
+        const urlRegex = /https?:\/\/[^\s]+|www\.[^\s]+|discord\.(gg|com\/invite)\/[^\s]+/gi;
+        const hasLink = urlRegex.test(message.content);
+        
+        if (hasLink) {
+            console.log(`[Link Protection] Deleting link from ${message.author.tag} in ${message.channel.name}`);
+            return {
+                found: true,
+                reason: 'Link detected',
+                action: 'delete'
+            };
+        }
+        
+        return false;
+        
+    } catch (error) {
+        console.error('Link protection check error:', error);
+        return false;
+    }
 }
 
 // ========== AUTO-MOD WARNING SYSTEM ==========
@@ -1214,15 +1530,8 @@ async function checkBadWords(message) {
         const data = await loadBadWords();
         const guildId = message.guild.id;
         
-        console.log(`[Auto-Mod Debug] Checking message in guild: ${guildId}`);
-        console.log(`[Auto-Mod Debug] Guild config exists: ${!!data[guildId]}`);
-        console.log(`[Auto-Mod Debug] Auto-mod enabled: ${data[guildId]?.enabled}`);
-        console.log(`[Auto-Mod Debug] Words count: ${data[guildId]?.words?.length || 0}`);
-        console.log(`[Auto-Mod Debug] Message content: ${message.content.substring(0, 50)}...`);
-        
         // If no config for this guild or auto-mod is disabled, return false
         if (!data[guildId] || data[guildId].enabled === false || !data[guildId].words || data[guildId].words.length === 0) {
-            console.log(`[Auto-Mod Debug] Skipping check - no config, disabled, or no words`);
             return false;
         }
         
@@ -1231,11 +1540,8 @@ async function checkBadWords(message) {
         
         // Ensure badWords is an array
         if (!Array.isArray(badWords)) {
-            console.error(`[Auto-Mod Debug] Bad words for guild ${guildId} is not an array:`, badWords);
             return false;
         }
-        
-        console.log(`[Auto-Mod Debug] Checking against ${badWords.length} bad words`);
         
         // Check each bad word
         for (const word of badWords) {
@@ -1254,7 +1560,6 @@ async function checkBadWords(message) {
             }
         }
         
-        console.log(`[Auto-Mod Debug] No bad words found`);
         return false;
         
     } catch (error) {
@@ -1263,5 +1568,68 @@ async function checkBadWords(message) {
     }
 }
 
-// Export for use in index.js
+// ========== UTILITY FUNCTIONS ==========
+
+function parseTime(timeStr) {
+    const regex = /^(\d+)([mhd])$/i;
+    const match = timeStr.match(regex);
+    
+    if (!match) return null;
+    
+    const amount = parseInt(match[1]);
+    const unit = match[2].toLowerCase();
+    
+    switch (unit) {
+        case 'm': return amount * 60 * 1000; // minutes
+        case 'h': return amount * 60 * 60 * 1000; // hours
+        case 'd': return amount * 24 * 60 * 60 * 1000; // days
+        default: return null;
+    }
+}
+
+function formatTime(ms) {
+    if (ms < 60000) return `${Math.floor(ms / 1000)}s`;
+    if (ms < 3600000) return `${Math.floor(ms / 60000)}m`;
+    if (ms < 86400000) return `${Math.floor(ms / 3600000)}h`;
+    return `${Math.floor(ms / 86400000)}d`;
+}
+
+async function loadBadWords() {
+    try {
+        const data = await fs.readFile(BAD_WORDS_FILE, 'utf8');
+        return JSON.parse(data);
+    } catch (error) {
+        // Return empty object if file doesn't exist
+        return {};
+    }
+}
+
+async function saveBadWords(data) {
+    await fs.writeFile(BAD_WORDS_FILE, JSON.stringify(data, null, 2));
+}
+
+async function loadLinkConfig() {
+    try {
+        const data = await fs.readFile(LINK_CHANNELS_FILE, 'utf8');
+        return JSON.parse(data);
+    } catch (error) {
+        // Return empty object if file doesn't exist
+        return {};
+    }
+}
+
+async function saveLinkConfig(data) {
+    await fs.writeFile(LINK_CHANNELS_FILE, JSON.stringify(data, null, 2));
+}
+
+// ========== EXPORTS FOR USE IN INDEX.JS ==========
+
+// For bad words auto-mod
 module.exports.checkBadWords = checkBadWords;
+
+// For link protection auto-mod
+module.exports.checkLinks = checkLinks;
+
+// For loading/saving link config
+module.exports.loadLinkConfig = loadLinkConfig;
+module.exports.saveLinkConfig = saveLinkConfig;

@@ -17,16 +17,16 @@ module.exports = {
         // Check if category ID is provided
         if (!args[0]) {
             const embed = new EmbedBuilder()
-                ^setColor('#0061ff')
-                ^setTitle('📊 Essential Log Channel Setup')
-                ^setDescription('This command will automatically create essential log channels for your server.')
+                .setColor('#0061ff')
+                .setTitle('📊 Essential Log Channel Setup')
+                .setDescription('This command will automatically create essential log channels for your server.')
                 .addFields(
                     { name: '📝 Usage', value: '`^setlogs <category-id>` - Create essential log channels in specified category', inline: false },
                     { name: '📋 What will be created', value: getAllLogChannelsList(), inline: false },
                     { name: '⚠️ Important', value: 'Make sure the bot has permission to create channels and manage the category.', inline: false },
                     { name: '🔧 How to get category ID', value: 'Enable Developer Mode in Discord Settings > Advanced, then right-click a category > Copy ID', inline: false }
                 )
-                ^setFooter({ text: 'DTEmpire Logging System' });
+                .setFooter({ text: 'DTEmpire Logging System' });
             
             return message.reply({ embeds: [embed] });
         }
@@ -47,26 +47,26 @@ module.exports = {
         
         // Confirm before proceeding
         const confirmEmbed = new EmbedBuilder()
-            ^setColor('#ff9900')
-            ^setTitle('⚠️ Confirm Log Channel Creation')
-            ^setDescription(`This will create **${getAllLogChannels().length}** essential log channels in the **${category.name}** category.`)
+            .setColor('#ff9900')
+            .setTitle('⚠️ Confirm Log Channel Creation')
+            .setDescription(`This will create **${getAllLogChannels().length}** essential log channels in the **${category.name}** category.`)
             .addFields(
                 { name: '📋 Channels to create:', value: getAllLogChannels().map(c => `• ${c.name}`).join('\n'), inline: false },
                 { name: '📝 Note:', value: 'Existing channels with the same name in this category will be skipped.', inline: false },
                 { name: '🔧 Function:', value: 'These channels will receive real-time logs for server activities.', inline: false }
             )
-            ^setFooter({ text: 'This action cannot be undone automatically' });
+            .setFooter({ text: 'This action cannot be undone automatically' });
         
         const row = new ActionRowBuilder()
             .addComponents(
                 new ButtonBuilder()
-                    ^setCustomId('confirm_logs')
-                    ^setLabel('✅ Create Log Channels')
-                    ^setStyle(ButtonStyle.Success),
+                    .setCustomId('confirm_logs')
+                    .setLabel('✅ Create Log Channels')
+                    .setStyle(ButtonStyle.Success),
                 new ButtonBuilder()
-                    ^setCustomId('cancel_logs')
-                    ^setLabel('❌ Cancel')
-                    ^setStyle(ButtonStyle.Danger)
+                    .setCustomId('cancel_logs')
+                    .setLabel('❌ Cancel')
+                    .setStyle(ButtonStyle.Danger)
             );
         
         const confirmMessage = await message.reply({ 
@@ -110,19 +110,15 @@ module.exports = {
 
 function getAllLogChannels() {
     return [
-        { name: 'mod-logs', type: ChannelType.GuildText, description: 'Moderation actions (mute, ban, warn, kick)' },
-        { name: 'join-leave-logs', type: ChannelType.GuildText, description: 'Member join and leave logs' },
+        { name: 'mod-logs', type: ChannelType.GuildText, description: 'All moderation actions (mute, ban, warn, kick, etc)' },
+        { name: 'join-leave-logs', type: ChannelType.GuildText, description: 'Member join and leave logs with invite tracking (shows who invited new members)' },
         { name: 'message-logs', type: ChannelType.GuildText, description: 'Message delete/edit logs' },
         { name: 'role-logs', type: ChannelType.GuildText, description: 'Role add/remove/create/delete logs' },
         { name: 'channel-logs', type: ChannelType.GuildText, description: 'Channel create/update/delete logs' },
         { name: 'voice-logs', type: ChannelType.GuildText, description: 'Voice channel join/leave/move logs' },
-        { name: 'invite-logs', type: ChannelType.GuildText, description: 'Invite create/use logs' },
+        { name: 'invite-logs', type: ChannelType.GuildText, description: 'Invite create/delete logs' },
         { name: 'ticket-logs', type: ChannelType.GuildText, description: 'Ticket system logs' },
-        { name: 'audit-logs', type: ChannelType.GuildText, description: 'General audit logs' },
-        { name: 'warning-logs', type: ChannelType.GuildText, description: 'Warning logs' },
-        { name: 'mute-logs', type: ChannelType.GuildText, description: 'Mute logs' },
-        { name: 'kick-logs', type: ChannelType.GuildText, description: 'Kick logs' },
-        { name: 'ban-logs', type: ChannelType.GuildText, description: 'Ban logs' }
+        { name: 'audit-logs', type: ChannelType.GuildText, description: 'General audit logs' }
     ];
 }
 
@@ -145,14 +141,14 @@ async function createAllLogChannels(message, category, client, db) {
     
     // Start creating channels
     const progressEmbed = new EmbedBuilder()
-        ^setColor('#0061ff')
-        ^setTitle('🔄 Creating Log Channels...')
-        ^setDescription('Please wait while I create essential log channels.')
+        .setColor('#0061ff')
+        .setTitle('🔄 Creating Log Channels...')
+        .setDescription('Please wait while I create essential log channels.')
         .addFields(
             { name: '📁 Category', value: category.name, inline: true },
             { name: '📊 Status', value: 'Starting...', inline: true }
         )
-        ^setFooter({ text: 'DTEmpire Logging System' });
+        .setFooter({ text: 'DTEmpire Logging System' });
     
     const progressMessage = await message.channel.send({ embeds: [progressEmbed] });
     
@@ -242,9 +238,9 @@ async function createAllLogChannels(message, category, client, db) {
     
     // Send final result
     const resultEmbed = new EmbedBuilder()
-        ^setColor(createdChannels.length > 0 ? '#00ff00' : failedChannels.length > 0 ? '#ff0000' : '#ff9900')
-        ^setTitle(createdChannels.length > 0 ? '✅ Log Channels Created Successfully!' : '⚠️ Log Channels Setup Complete')
-        ^setDescription(`Essential log channels have been set up in **${category.name}** category.`)
+        .setColor(createdChannels.length > 0 ? '#00ff00' : failedChannels.length > 0 ? '#ff0000' : '#ff9900')
+        .setTitle(createdChannels.length > 0 ? '✅ Log Channels Created Successfully!' : '⚠️ Log Channels Setup Complete')
+        .setDescription(`Essential log channels have been set up in **${category.name}** category.`)
         .addFields(
             { 
                 name: '✅ Created', 
@@ -284,12 +280,17 @@ async function createAllLogChannels(message, category, client, db) {
         },
         { 
             name: '🔔 Test Logs', 
-            value: 'Use `.testlogs` command to test if logging is working properly.', 
+            value: 'Use `^testlogs` command to test if logging is working properly.', 
+            inline: false 
+        },
+        { 
+            name: '📨 Special Feature: Invite Tracking', 
+            value: '**join-leave-logs** channel will show:\n• Who invited new members\n• Inviter\'s total invite count\n• Which invite link was used\n\nThis helps track member growth and reward active inviters!', 
             inline: false 
         }
     );
     
-    resultEmbed^setFooter({ text: 'DTEmpire Logging System' });
+    resultEmbed.setFooter({ text: 'DTEmpire Logging System' });
     
     await progressMessage.edit({ embeds: [resultEmbed] });
 }
@@ -298,16 +299,16 @@ function updateProgress(message, current, total, created, skipped, failed, perce
     const progressBar = createProgressBar(current, total);
     
     const progressEmbed = new EmbedBuilder()
-        ^setColor('#0061ff')
-        ^setTitle('🔄 Creating Log Channels...')
-        ^setDescription(`${progressBar} **${percent}%**`)
+        .setColor('#0061ff')
+        .setTitle('🔄 Creating Log Channels...')
+        .setDescription(`${progressBar} **${percent}%**`)
         .addFields(
             { name: '📊 Progress', value: `${current}/${total} channels`, inline: true },
             { name: '✅ Created', value: created.toString(), inline: true },
             { name: '⏭️ Skipped', value: skipped.toString(), inline: true },
             { name: '❌ Failed', value: failed.toString(), inline: true }
         )
-        ^setFooter({ text: 'Please wait...' });
+        .setFooter({ text: 'Please wait...' });
     
     message.edit({ embeds: [progressEmbed] }).catch(() => {});
 }
@@ -328,15 +329,7 @@ function getLogChannelField(channelName) {
         'voice-logs': 'voice_log_channel',
         'invite-logs': 'invite_log_channel',
         'ticket-logs': 'ticket_log_channel',
-        'audit-logs': 'audit_log_channel',
-        'warning-logs': 'warning_log_channel',
-        'mute-logs': 'mute_log_channel',
-        'kick-logs': 'kick_log_channel',
-        'ban-logs': 'ban_log_channel',
-        'log-channel': 'log_channel',  // Main log channel
-        'economy-logs': 'economy_log_channel',
-        'leveling-logs': 'leveling_log_channel',
-        'giveaway-logs': 'giveaway_log_channel'
+        'audit-logs': 'audit_log_channel'
     };
     
     return fieldMapping[channelName];
