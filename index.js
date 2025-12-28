@@ -51,12 +51,15 @@ client.inviteTrackers = new Map(); // Store: guildId -> Map(userId -> inviteCoun
 // Initialize TTS cache
 client.ttsCache = new Map();
 
-// Bot info
+// In your main bot file where you create client.botInfo
 client.botInfo = {
     name: config.bot.name,
     version: config.bot.version,
     creator: "DargoTamber",
     prefix: config.bot.prefix,
+    ownerId: config.bot.ownerId, // Add this line
+    admins: config.bot.admins,   // Also add admins if you want multiple admin users
+    embedColor: config.bot.embedColor, // Add this for consistency
     startedAt: Date.now()
 };
 
