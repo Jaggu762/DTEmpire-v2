@@ -1283,6 +1283,9 @@ client.on('interactionCreate', async (interaction) => {
             // ========== ECONOMY BUTTON HANDLER ==========
             if (interaction.customId.startsWith('eco_')) {
                 try {
+                    // Defer the interaction immediately
+                    await interaction.deferReply({ flags: 64 });
+                    
                     // Initialize database if needed
                     if (!client.db) {
                         const Database = require('./utils/database');
@@ -1296,9 +1299,8 @@ client.on('interactionCreate', async (interaction) => {
                         economyCommand = require('./commands/Economy/economy.js');
                     } catch (error) {
                         console.error('[Economy] Failed to load economy command:', error.message);
-                        await interaction.reply({
-                            content: '❌ Economy system not available.',
-                            flags: 64 // Ephemeral
+                        await interaction.editReply({
+                            content: '❌ Economy system not available.'
                         });
                         return;
                     }
@@ -1313,9 +1315,9 @@ client.on('interactionCreate', async (interaction) => {
                         channel: interaction.channel,
                         reply: async (content) => {
                             if (typeof content === 'object' && content.embeds) {
-                                return interaction.reply(content);
+                                return interaction.editReply(content);
                             } else {
-                                return interaction.reply({ content });
+                                return interaction.editReply({ content });
                             }
                         }
                     };
@@ -1323,6 +1325,15 @@ client.on('interactionCreate', async (interaction) => {
                     switch (buttonType) {
                         case 'work':
                             await economyCommand.workJob(mockMessage, client, client.db);
+                            break;
+                        case 'jobs':
+                            if (economyCommand.showJobs && typeof economyCommand.showJobs === 'function') {
+                                await economyCommand.showJobs(mockMessage, client, client.db);
+                            } else {
+                                await interaction.editReply({
+                                    content: '💼 Loading available jobs...'
+                                });
+                            }
                             break;
                         case 'properties':
                             await economyCommand.showProperties(mockMessage, client, client.db);
@@ -1333,16 +1344,37 @@ client.on('interactionCreate', async (interaction) => {
                         case 'bank':
                             await economyCommand.bankManagement(mockMessage, [], client, client.db);
                             break;
+                        case 'help':
+                            if (economyCommand.showEconomyHelp) {
+                                await economyCommand.showEconomyHelp(mockMessage, client, client.db);
+                            } else {
+                                await interaction.editReply({
+                                    content: '📚 **Economy System Help**\n\n**Available Commands:**\n• `balance` - Check your balance\n• `work` - Earn money\n• `bank` - Manage savings\n• `lottery` - Play lottery\n• `properties` - View properties'
+                                });
+                            }
+                            break;
+                        case 'profile':
+                            if (economyCommand.showProfile && typeof economyCommand.showProfile === 'function') {
+                                await economyCommand.showProfile(mockMessage, client, client.db);
+                            } else {
+                                await interaction.editReply({
+                                    content: '👤 Loading profile...'
+                                });
+                            }
+                            break;
+                        case 'leaderboard':
+                            if (economyCommand.showLeaderboard && typeof economyCommand.showLeaderboard === 'function') {
+                                await economyCommand.showLeaderboard(mockMessage, client, client.db);
+                            } else {
+                                await interaction.editReply({
+                                    content: '🏆 Loading leaderboard...'
+                                });
+                            }
+                            break;
                         default:
-                            await interaction.reply({
-                                content: '❌ Unknown button action.',
-                                flags: 64 // Ephemeral
+                            await interaction.editReply({
+                                content: '❌ Unknown button action.'
                             });
-                    }
-                    
-                    // Defer update to prevent interaction timeout
-                    if (!interaction.replied) {
-                        await interaction.deferUpdate();
                     }
                     
                 } catch (error) {
@@ -1351,6 +1383,10 @@ client.on('interactionCreate', async (interaction) => {
                         await interaction.reply({
                             content: '❌ An error occurred processing your request.',
                             flags: 64 // Ephemeral
+                        }).catch(() => {});
+                    } else {
+                        await interaction.editReply({
+                            content: '❌ An error occurred processing your request.'
                         }).catch(() => {});
                     }
                 }
