@@ -1628,6 +1628,124 @@ client.on('interactionCreate', async (interaction) => {
                 return;
             }
             
+            // ========== SUGGESTION BUTTON HANDLER ==========
+            if (interaction.customId.startsWith('suggest_')) {
+                try {
+                    const parts = interaction.customId.replace('suggest_', '').split('_');
+                    const action = parts[0];
+                    const suggestionId = parts.slice(1).join('_');
+
+                    // Get the suggestion message
+                    const suggestionMsg = interaction.message;
+                    
+                    // Parse suggestion data from embed
+                    const embed = suggestionMsg.embeds[0];
+                    if (!embed) {
+                        return interaction.reply({
+                            content: '❌ Could not find suggestion data!',
+                            flags: 64
+                        });
+                    }
+
+                    // Extract current votes from embed
+                    const votesField = embed.fields.find(f => f.name.includes('📊'));
+                    let upvotes = 0, downvotes = 0;
+                    if (votesField) {
+                        const match = votesField.value.match(/⬆️ (\d+)|⬇️ (\d+)/g);
+                        if (match) {
+                            upvotes = parseInt(match[0].match(/\d+/)[0]) || 0;
+                            downvotes = parseInt(match[1].match(/\d+/)[0]) || 0;
+                        }
+                    }
+
+                    // Handle upvote/downvote
+                    if (action === 'upvote') {
+                        upvotes++;
+                        await interaction.reply({
+                            content: '⬆️ Upvoted!',
+                            flags: 64
+                        });
+                        
+                        // Update embed
+                        const totalVotes = upvotes + downvotes;
+                        const upvotePercent = totalVotes > 0 ? ((upvotes / totalVotes) * 100).toFixed(0) : 0;
+                        
+                        const updatedEmbed = new EmbedBuilder(embed)
+                            .spliceFields(
+                                embed.fields.findIndex(f => f.name.includes('📊')), 1,
+                                { name: '📊 Votes', value: `⬆️ ${upvotes} (${upvotePercent}%) | ⬇️ ${downvotes}`, inline: true }
+                            );
+                        
+                        await suggestionMsg.edit({ embeds: [updatedEmbed] });
+                    } 
+                    else if (action === 'downvote') {
+                        downvotes++;
+                        await interaction.reply({
+                            content: '⬇️ Downvoted!',
+                            flags: 64
+                        });
+                        
+                        // Update embed
+                        const totalVotes = upvotes + downvotes;
+                        const upvotePercent = totalVotes > 0 ? ((upvotes / totalVotes) * 100).toFixed(0) : 0;
+                        
+                        const updatedEmbed = new EmbedBuilder(embed)
+                            .spliceFields(
+                                embed.fields.findIndex(f => f.name.includes('📊')), 1,
+                                { name: '📊 Votes', value: `⬆️ ${upvotes} (${upvotePercent}%) | ⬇️ ${downvotes}`, inline: true }
+                            );
+                        
+                        await suggestionMsg.edit({ embeds: [updatedEmbed] });
+                    }
+                    // Handle admin actions (approve, deny, consider)
+                    else if (action === 'approve' || action === 'deny' || action === 'consider') {
+                        if (!interaction.member.permissions.has(PermissionFlagsBits.ManageMessages)) {
+                            return interaction.reply({
+                                content: '❌ You need **Manage Messages** permission to moderate suggestions!',
+                                flags: 64
+                            });
+                        }
+
+                        let statusEmoji = '✅';
+                        let statusText = 'Approved';
+                        let statusColor = '#00ff00';
+
+                        if (action === 'deny') {
+                            statusEmoji = '❌';
+                            statusText = 'Denied';
+                            statusColor = '#ff0000';
+                        } else if (action === 'consider') {
+                            statusEmoji = '🤔';
+                            statusText = 'Under Consideration';
+                            statusColor = '#ffaa00';
+                        }
+
+                        await interaction.reply({
+                            content: `${statusEmoji} Suggestion marked as **${statusText}**!`,
+                            flags: 64
+                        });
+                        
+                        // Update embed status
+                        const statusFieldIndex = embed.fields.findIndex(f => f.name.includes('📝'));
+                        const updatedEmbed = new EmbedBuilder(embed)
+                            .setColor(statusColor)
+                            .spliceFields(
+                                statusFieldIndex, 1,
+                                { name: '📝 Status', value: `${statusEmoji} ${statusText}`, inline: true }
+                            );
+                        
+                        await suggestionMsg.edit({ embeds: [updatedEmbed] });
+                    }
+                } catch (error) {
+                    console.error('Suggestion button error:', error);
+                    await interaction.reply({
+                        content: '❌ Failed to process suggestion action!',
+                        flags: 64
+                    });
+                }
+                return;
+            }
+            
             // ========== REACTION ROLE BUTTON HANDLER ==========
             if (interaction.customId.startsWith('rr_')) {
                 try {
