@@ -48,40 +48,72 @@ async function handleAIRequest(message, model, prompt) {
         // Send typing indicator
         await message.channel.sendTyping();
         
-        // Make API request
-        const response = await axios.get('https://imggen-api.ankitgupta.com.np/api/ai-quick', {
-            params: {
-                prompt: prompt,
-                model: model
-            },
-            timeout: 10000
-        });
-        
-        const aiResponse = response.data.response || 'No response from AI';
-        
-        // Create embed
-        const embed = new EmbedBuilder()
+        // Show waiting message
+        const waitingEmbed = new EmbedBuilder()
             .setColor('#0061ff')
-            .setTitle('🤖 AI Response')
-            .setDescription(aiResponse.slice(0, 4000))
-            .addFields(
-                { name: '🧠 Model', value: model, inline: true },
-                { name: '👤 User', value: message.author.username, inline: true }
-            )
-            .setFooter({ text: 'DTEmpire AI System v2.6.9' });
+            .setTitle('🤖 AI is thinking...')
+            .setDescription(`Processing your message with ${model} model...\n\n⏳ This may take 10-30 seconds`);
         
-        message.reply({ embeds: [embed] });
+        const waitingMsg = await message.reply({ embeds: [waitingEmbed] });
+        
+        // Make API request with longer timeout and retry
+        let aiResponse = null;
+        let lastError = null;
+        
+        for (let attempt = 1; attempt <= 3; attempt++) {
+            try {
+                const response = await axios.get('https://imggen-api.ankitgupta.com.np/api/ai-quick', {
+                    params: {
+                        prompt: prompt,
+                        model: model
+                    },
+                    timeout: 60000 // 60 second timeout
+                });
+                
+                aiResponse = response.data.response || null;
+                
+                if (aiResponse) {
+                    break; // Success, exit retry loop
+                }
+            } catch (error) {
+                lastError = error;
+                console.log(`AI request attempt ${attempt}/3 failed:`, error.message);
+                
+                // Wait before retrying
+                if (attempt < 3) {
+                    await new Promise(resolve => setTimeout(resolve, 2000));
+                }
+            }
+        }
+        
+        // If we got a response, update the message
+        if (aiResponse) {
+            const embed = new EmbedBuilder()
+                .setColor('#0061ff')
+                .setTitle('🤖 AI Response')
+                .setDescription(aiResponse.slice(0, 4000))
+                .addFields(
+                    { name: '🧠 Model', value: model, inline: true },
+                    { name: '👤 User', value: message.author.username, inline: true }
+                )
+                .setFooter({ text: 'DTEmpire AI System v2.6.9' });
+            
+            await waitingMsg.edit({ embeds: [embed] });
+        } else {
+            // No response after retries
+            throw new Error('AI API did not return a response after 3 attempts');
+        }
         
     } catch (error) {
         console.error('AI Chat Error:', error.message);
         
-        // Fallback response
-        const fallbackEmbed = new EmbedBuilder()
-            .setColor('#ff9900')
-            .setTitle('🤖 AI Response')
-            .setDescription(`**Your message:** ${prompt.substring(0, 200)}...\n\n**AI says:** I received your message! (API temporarily unavailable)\n\n*Try: \`^ai help\` for more options*`)
-            .setFooter({ text: 'DTEmpire AI - Simulated response' });
+        // Error response
+        const errorEmbed = new EmbedBuilder()
+            .setColor('#ff0000')
+            .setTitle('🤖 AI Error')
+            .setDescription(`**Your message:** ${prompt.substring(0, 200)}...\n\n**Error:** API is temporarily unavailable. Please try again in a moment.\n\n*Try: \`^ai help\` for more options*`)
+            .setFooter({ text: 'DTEmpire AI - Error response' });
         
-        message.reply({ embeds: [fallbackEmbed] });
+        message.reply({ embeds: [errorEmbed] });
     }
 }
