@@ -25,7 +25,7 @@
 
 - Prefix: `^`
 - Version: **2.7.1**
-- Total Commands: **45**
+- Total Commands: **51**
 - Categories: **12**
 - Built with **Discord.js v14**
 
