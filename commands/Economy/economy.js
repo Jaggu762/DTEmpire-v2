@@ -39,6 +39,11 @@ const JOBS = [
 const LOTTERY_TICKET_PRICE = 1000;
 const LOTTERY_JACKPOT_BASE = 100000;
 const MAX_LOTTERY_TICKETS = 5;
+const LOTTERY_TIMER_MS = 10 * 60 * 1000; // 10 minutes from first ticket purchase
+
+// In-memory timers to auto-draw lottery after the first ticket
+const lotteryTimers = new Map(); // guildId -> setTimeout handle
+const lotteryStartTimes = new Map(); // guildId -> timestamp when timer started
 
 module.exports = {
     name: 'economy',
@@ -803,10 +808,29 @@ async function lotteryInfo(message, client, db) {
             { name: '💰 Current Jackpot', value: `$${totalPot.toLocaleString()}`, inline: true },
             { name: '🎯 Active Tickets', value: `${activeTickets.length}`, inline: true },
             { name: '👥 Unique Players', value: `${uniquePlayers}`, inline: true },
-            { name: '📝 How to Play', value: 'Buy tickets with `^economy buyticket <number>` (1-100)\nDrawing happens when **10 tickets** are sold **and** at least **2 players** joined\nWinner is picked randomly from sold tickets', inline: false },
+            { name: '📝 How to Play', value: 'Buy tickets with `^economy buyticket <number>` (1-100)\nDrawing starts when the **first ticket** is bought and runs **10 minutes** later. More tickets can be bought during the 10-minute window, but the timer does not reset.\nA random number (1-100) is drawn; matching ticket(s) can win.', inline: false },
             { name: '🎲 Your Tickets', value: 'Use `^economy profile` to see your tickets', inline: false }
-        )
-        .setFooter({ text: 'Good luck!' });
+        );
+
+    // Show time remaining if timer is active
+    if (lotteryTimers.has(guildId) && lotteryStartTimes.has(guildId)) {
+        const startTime = lotteryStartTimes.get(guildId);
+        const endTime = startTime + LOTTERY_TIMER_MS;
+        const remaining = endTime - Date.now();
+        if (remaining > 0) {
+            const minutes = Math.floor(remaining / (60 * 1000));
+            const seconds = Math.floor((remaining % (60 * 1000)) / 1000);
+            embed.addFields({ name: '⏰ Draw In', value: `${minutes}m ${seconds}s`, inline: true });
+        } else {
+            embed.addFields({ name: '⏰ Draw In', value: 'Drawing soon...', inline: true });
+        }
+    } else if (activeTickets.length === 0) {
+        embed.addFields({ name: '⏰ Draw In', value: 'No active lottery', inline: true });
+    } else {
+        embed.addFields({ name: '⏰ Draw In', value: 'Timer will start on first ticket', inline: true });
+    }
+
+    embed.setFooter({ text: 'Good luck!' });
     
     await message.reply({ embeds: [embed] });
 }
@@ -847,10 +871,32 @@ async function buyLotteryTicket(message, args, client, db) {
     // Deduct money
     economy.wallet -= LOTTERY_TICKET_PRICE;
     await db.updateUserEconomy(userId, guildId, economy);
-    
-    // Buy ticket
-    await db.buyLotteryTicket(userId, guildId, ticketNumber, LOTTERY_TICKET_PRICE);
-    
+
+    // Attempt to buy ticket
+    let purchaseSucceeded = false;
+    try {
+        await db.buyLotteryTicket(userId, guildId, ticketNumber, LOTTERY_TICKET_PRICE);
+        purchaseSucceeded = true;
+    } catch (err) {
+        // Roll back wallet if DB operation failed
+        economy.wallet += LOTTERY_TICKET_PRICE;
+        await db.updateUserEconomy(userId, guildId, economy);
+        return message.reply('❌ Could not purchase the ticket due to a database error. You were not charged.');
+    }
+
+    // Re-fetch to validate count actually increased
+    const updatedTickets = await db.getActiveLotteryTickets(guildId);
+    const updatedUserTickets = updatedTickets.filter(t => t.user_id === userId);
+    const countIncreased = updatedUserTickets.length > userTickets.length;
+
+    if (!countIncreased) {
+        // Refund because the ticket did not persist
+        economy.wallet += LOTTERY_TICKET_PRICE;
+        await db.updateUserEconomy(userId, guildId, economy);
+        await db.addTransaction(userId, guildId, 'lottery_refund', LOTTERY_TICKET_PRICE, { ticket_number: ticketNumber, reason: 'ticket_not_persisted' });
+        return message.reply('❌ Ticket was not recorded. Refunded your $1000. Please try a different number.');
+    }
+
     // Log transaction
     await db.addTransaction(userId, guildId, 'lottery', -LOTTERY_TICKET_PRICE, {
         ticket_number: ticketNumber
@@ -863,19 +909,96 @@ async function buyLotteryTicket(message, args, client, db) {
         .addFields(
             { name: 'Your Number', value: `#${ticketNumber}`, inline: true },
             { name: 'Ticket Price', value: `$${LOTTERY_TICKET_PRICE}`, inline: true },
-            { name: 'Your Tickets', value: `${userTickets.length + 1}/${MAX_LOTTERY_TICKETS}`, inline: true },
-            { name: 'Current Jackpot', value: `$${(LOTTERY_JACKPOT_BASE + (activeTickets.length + 1) * LOTTERY_TICKET_PRICE).toLocaleString()}`, inline: false },
+            { name: 'Your Tickets', value: `${updatedUserTickets.length}/${MAX_LOTTERY_TICKETS}`, inline: true },
+            { name: 'Current Jackpot', value: `$${(LOTTERY_JACKPOT_BASE + (updatedTickets.length) * LOTTERY_TICKET_PRICE).toLocaleString()}`, inline: false },
             { name: 'Drawing', value: 'When **10 tickets** are sold & **2+ players** joined', inline: true }
         );
     
-    // Check if we should mark jackpot ready (10 tickets & 2+ players)
-    const updatedActive = await db.getActiveLotteryTickets(guildId);
-    const uniquePlayers = new Set(updatedActive.map(t => t.user_id)).size;
-    if (updatedActive.length >= 10 && uniquePlayers >= 2) {
-        embed.addFields({ name: '🎉 JACKPOT READY!', value: 'Drawing threshold reached. Good luck!', inline: false });
+    // Schedule draw once the first ticket exists; timer does not reset
+    if (!lotteryTimers.has(guildId)) {
+        scheduleLotteryTimer({ guildId, client, db, guildName: message.guild.name });
+    }
+
+    const uniquePlayers = new Set(updatedTickets.map(t => t.user_id)).size;
+
+    // Status messaging
+    if (lotteryTimers.has(guildId)) {
+        embed.addFields({ name: '⏳ Waiting', value: 'Draw will run 10 minutes after the first ticket. Timer does not reset.', inline: false });
+    }
+    if (uniquePlayers >= 1 && updatedTickets.length === 1) {
+        embed.addFields({ name: '👥 Players', value: '1 player joined. Others can still buy before the draw.', inline: false });
     }
     
     await message.reply({ embeds: [embed] });
+}
+
+// Determine if lottery should draw now: 2+ tickets OR 1 ticket older than 5 minutes
+function clearLotteryTimer(guildId) {
+    if (lotteryTimers.has(guildId)) {
+        clearTimeout(lotteryTimers.get(guildId));
+        lotteryTimers.delete(guildId);
+    }
+    lotteryStartTimes.delete(guildId);
+}
+
+function scheduleLotteryTimer({ guildId, client, db, guildName }) {
+    if (lotteryTimers.has(guildId)) return; // already scheduled
+    
+    const startTime = Date.now();
+    lotteryStartTimes.set(guildId, startTime);
+    
+    const timer = setTimeout(async () => {
+        try {
+            const tickets = await db.getActiveLotteryTickets(guildId);
+            if (tickets && tickets.length >= 1) {
+                // draw after 10 minutes from first ticket, regardless of count
+                await handleLotteryDraw({ guildId, client, db, tickets, guildName });
+            }
+        } catch (err) {
+            // swallow errors; timer will be cleared regardless
+        } finally {
+            clearLotteryTimer(guildId);
+        }
+    }, LOTTERY_TIMER_MS);
+    lotteryTimers.set(guildId, timer);
+}
+
+async function handleLotteryDraw({ guildId, client, db, embed = null, tickets, guildName }) {
+    if (!tickets || tickets.length === 0) return;
+
+    // Draw: pick random winning number 1-100
+    const winningNumber = Math.floor(Math.random() * 100) + 1;
+    const matchingTickets = tickets.filter(t => t.ticket_number === winningNumber);
+    const winnerTicket = matchingTickets.length > 0 ? matchingTickets[Math.floor(Math.random() * matchingTickets.length)] : null;
+    const finalPot = LOTTERY_JACKPOT_BASE + (tickets.length * LOTTERY_TICKET_PRICE);
+
+    if (winnerTicket) {
+        const winnerUserId = winnerTicket.user_id;
+        if (typeof db.drawLottery === 'function') {
+            try {
+                await db.drawLottery(guildId, winningNumber);
+            } catch (err) {/* ignore */}
+        }
+        if (typeof db.payoutLotteryWinner === 'function') {
+            try {
+                await db.payoutLotteryWinner(guildId, winnerUserId, finalPot);
+            } catch (err) {/* ignore */}
+        }
+
+        // DM winner
+        try {
+            const winnerUser = await client.users.fetch(winnerUserId);
+            await winnerUser.send(`🎉 Lottery Result in ${guildName}: Winning number #${winningNumber}. You won $${finalPot.toLocaleString()}!`);
+        } catch (notifyErr) {/* ignore DM failures */}
+
+        if (embed) {
+            embed.addFields({ name: '🎉 JACKPOT DRAWN!', value: `Winning Number: #${winningNumber}\nWinner: <@${winnerUserId}>\nPot: $${finalPot.toLocaleString()}`, inline: false });
+        }
+    } else {
+        if (embed) {
+            embed.addFields({ name: '🎲 No Winner', value: `Winning Number: #${winningNumber}\nNo matching tickets this round.`, inline: false });
+        }
+    }
 }
 
 async function bankManagement(message, args, client, db) {
