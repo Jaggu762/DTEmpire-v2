@@ -87,6 +87,9 @@ module.exports = {
             case 'lottery':
                 await lotteryInfo(message, client, db);
                 break;
+            case 'forcelottery':
+                await forceLottery(message, client, db);
+                break;
             case 'buyticket':
                 await buyLotteryTicket(message, args.slice(1), client, db);
                 break;
@@ -824,8 +827,8 @@ async function lotteryInfo(message, client, db) {
         } else {
             embed.addFields({ name: '⏰ Draw In', value: 'Drawing soon...', inline: true });
         }
-    } else if (activeTickets.length === 0) {
-        embed.addFields({ name: '⏰ Draw In', value: 'No active lottery', inline: true });
+    } else if (activeTickets.length > 0) {
+        embed.addFields({ name: '⏰ Draw In', value: 'Timer paused - buy a ticket to restart or use ^economy forcelottery', inline: false });
     } else {
         embed.addFields({ name: '⏰ Draw In', value: 'Timer will start on first ticket', inline: true });
     }
@@ -914,8 +917,8 @@ async function buyLotteryTicket(message, args, client, db) {
             { name: 'Drawing', value: 'When **10 tickets** are sold & **2+ players** joined', inline: true }
         );
     
-    // Schedule draw once the first ticket exists; timer does not reset
-    if (!lotteryTimers.has(guildId)) {
+    // Schedule draw if no timer is running (handles first ticket or bot restart)
+    if (!lotteryTimers.has(guildId) && updatedTickets.length > 0) {
         scheduleLotteryTimer({ guildId, client, db, guildName: message.guild.name });
     }
 
@@ -961,6 +964,34 @@ function scheduleLotteryTimer({ guildId, client, db, guildName }) {
         }
     }, LOTTERY_TIMER_MS);
     lotteryTimers.set(guildId, timer);
+}
+
+async function forceLottery(message, client, db) {
+    // Check if user has administrator permission
+    if (!message.member.permissions.has('Administrator')) {
+        return message.reply('❌ You need Administrator permission to force a lottery draw.');
+    }
+
+    const guildId = message.guild.id;
+    const activeTickets = await db.getActiveLotteryTickets(guildId);
+
+    if (activeTickets.length === 0) {
+        return message.reply('❌ There are no active lottery tickets to draw.');
+    }
+
+    await message.reply('🎲 Forcing lottery draw now...');
+
+    // Clear any existing timer
+    clearLotteryTimer(guildId);
+
+    // Trigger the draw
+    await handleLotteryDraw({ 
+        guildId, 
+        client, 
+        db, 
+        tickets: activeTickets, 
+        guildName: message.guild.name 
+    });
 }
 
 async function handleLotteryDraw({ guildId, client, db, embed = null, tickets, guildName }) {
