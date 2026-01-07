@@ -822,13 +822,14 @@ async function buyLotteryTicket(message, args, client, db) {
             { name: 'Ticket Price', value: `$${LOTTERY_TICKET_PRICE}`, inline: true },
             { name: 'Your Tickets', value: `${userTickets.length + 1}/${MAX_LOTTERY_TICKETS}`, inline: true },
             { name: 'Current Jackpot', value: `$${(LOTTERY_JACKPOT_BASE + (activeTickets.length + 1) * LOTTERY_TICKET_PRICE).toLocaleString()}`, inline: false },
-            { name: 'Drawing', value: 'When 100 tickets are sold', inline: true }
+            { name: 'Drawing', value: 'When **10 tickets** are sold & **2+ players** joined', inline: true }
         );
     
-    // Check if we should draw lottery (100 tickets sold)
-    if (activeTickets.length + 1 >= 100) {
-        embed.addFields({ name: '🎉 JACKPOT READY!', value: 'Lottery will be drawn soon!', inline: false });
-        // In a real implementation, you'd trigger the lottery draw here
+    // Check if we should mark jackpot ready (10 tickets & 2+ players)
+    const updatedActive = await db.getActiveLotteryTickets(guildId);
+    const uniquePlayers = new Set(updatedActive.map(t => t.user_id)).size;
+    if (updatedActive.length >= 10 && uniquePlayers >= 2) {
+        embed.addFields({ name: '🎉 JACKPOT READY!', value: 'Drawing threshold reached. Good luck!', inline: false });
     }
     
     await message.reply({ embeds: [embed] });
@@ -1257,9 +1258,10 @@ async function showHelp(message) {
         .addFields(
             { name: '📊 Dashboard', value: '`^economy` - View your economy dashboard', inline: false },
             { name: '💼 Jobs', value: '`^economy jobs` - View available jobs\n`^economy apply <job_id>` - Apply for a job\n`^economy work` - Work and earn salary', inline: false },
+            { name: '📅 Daily Check-In', value: '`^economy daily` / `^economy checkin` / `^economy streak` - Claim daily rewards and view your streak (UTC, 24h cooldown)', inline: false },
             { name: '🏘️ Properties', value: '`^economy properties` - View your properties\n`^economy buy` - View available properties\n`^economy buy <type> <id>` - Buy a property\n`^economy sell <type> <index>` - Sell a property', inline: false },
             { name: '🏦 Bank', value: '`^economy bank` - View bank balance\n`^economy bank deposit <amount/all>` - Deposit money\n`^economy bank withdraw <amount/all>` - Withdraw money\n`^economy bank collect` - Collect daily rent', inline: false },
-            { name: '🎫 Lottery', value: '`^economy lottery` - View lottery info\n`^economy buyticket <number>` - Buy lottery ticket (1-100)', inline: false },
+            { name: '🎫 Lottery', value: '`^economy lottery` - View lottery info\n`^economy buyticket <number>` - Buy lottery ticket (1-100)\nDrawing occurs when **10 tickets** are sold **and** at least **2 players** joined', inline: false },
             { name: '🎮 Games & Activities', value: '`^economy steal @user` - Steal money (50% success, 1h cooldown)\n`^economy pay @user <amount>` - Send money to others\n`^economy race <amount>` - Horse race betting (3x)\n`^economy football <amount> <red/blue>` - Team match betting\n`^economy gamble <amount>` - Test your luck (2x)', inline: false },
             { name: '📊 Leaderboards', value: '`^economy leaderboard` - View top 10 richest players', inline: false },
             { name: '👤 Profile', value: '`^economy profile [@user]` - View economy profile', inline: false }
