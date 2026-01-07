@@ -63,7 +63,54 @@ function computeCurrentPot(guildId, ticketsCount) {
     }
 }
 
+function ensureAutoLotteryMethods(db) {
+    if (!db) return;
+    if (!db.data) db.data = {};
+    if (!db.data.autoLottery) db.data.autoLottery = {};
+
+    if (typeof db.setAutoTicket !== 'function') {
+        db.setAutoTicket = async function(userId, guildId, number, enabled = true) {
+            const key = `auto_${userId}_${guildId}`;
+            db.data.autoLottery[key] = {
+                user_id: userId,
+                guild_id: guildId,
+                number: number,
+                enabled: !!enabled,
+                created_at: Date.now()
+            };
+            if (typeof db.save === 'function') db.save();
+            return db.data.autoLottery[key];
+        };
+    }
+
+    if (typeof db.getAutoTicket !== 'function') {
+        db.getAutoTicket = async function(userId, guildId) {
+            const key = `auto_${userId}_${guildId}`;
+            return db.data.autoLottery[key] || null;
+        };
+    }
+
+    if (typeof db.removeAutoTicket !== 'function') {
+        db.removeAutoTicket = async function(userId, guildId) {
+            const key = `auto_${userId}_${guildId}`;
+            if (db.data.autoLottery[key]) {
+                delete db.data.autoLottery[key];
+                if (typeof db.save === 'function') db.save();
+                return true;
+            }
+            return false;
+        };
+    }
+
+    if (typeof db.getAutoTicketsForGuild !== 'function') {
+        db.getAutoTicketsForGuild = async function(guildId) {
+            return Object.values(db.data.autoLottery).filter(s => s.guild_id === guildId && s.enabled);
+        };
+    }
+}
+
 async function applyAutoSubscriptions({ guildId, client, db, guildName }) {
+    ensureAutoLotteryMethods(db);
     // Fetch subscriptions and attempt to buy tickets for new round
     const subs = await db.getAutoTicketsForGuild(guildId);
     if (!subs || subs.length === 0) return false;
@@ -203,6 +250,15 @@ module.exports = {
 };
 
 // ========== HELPER FUNCTIONS ==========
+function getPropertyArrayKey(type) {
+    switch (type) {
+        case 'house': return 'houses';
+        case 'shop': return 'shops';
+        case 'land': return 'lands';
+        case 'business': return 'businesses';
+        default: return null;
+    }
+}
 
 async function showEconomyDashboard(message, client, db) {
     const userId = message.author.id;
@@ -748,7 +804,12 @@ async function buyProperty(message, args, client, db) {
     
     // Add property
     const userProperties = await db.getUserProperties(userId, guildId);
-    userProperties[`${type}s`].push({
+    const typeKey = getPropertyArrayKey(type);
+    if (!typeKey) {
+        return message.reply('❌ Invalid property type.');
+    }
+    if (!Array.isArray(userProperties[typeKey])) userProperties[typeKey] = [];
+    userProperties[typeKey].push({
         id: property.id,
         purchased_at: Date.now(),
         value: property.price
@@ -798,7 +859,11 @@ async function sellProperty(message, args, client, db) {
     
     // Get user properties
     const userProperties = await db.getUserProperties(userId, guildId);
-    const propertyArray = userProperties[`${type}s`];
+    const typeKey = getPropertyArrayKey(type);
+    if (!typeKey) {
+        return message.reply('❌ Invalid property type. Use: house, shop, land, or business');
+    }
+    const propertyArray = userProperties[typeKey] || [];
     
     if (!propertyArray || propertyArray.length === 0) {
         return message.reply(`❌ You don't own any ${type}s.`);
@@ -837,7 +902,7 @@ async function sellProperty(message, args, client, db) {
     
     // Remove property from array
     propertyArray.splice(index, 1);
-    userProperties[`${type}s`] = propertyArray;
+    userProperties[typeKey] = propertyArray;
     
     // Update total property value
     userProperties.total_property_value -= propertyConfig.price;
@@ -1064,6 +1129,7 @@ async function buyLotteryTicket(message, args, client, db) {
 }
 
 async function setAutoTicketCommand(message, args, client, db) {
+    ensureAutoLotteryMethods(db);
     if (args.length === 0) {
         return message.reply('❌ Usage: `^economy autoticket <number>` (1-100)');
     }
@@ -1076,6 +1142,33 @@ async function setAutoTicketCommand(message, args, client, db) {
 
     await db.setAutoTicket(userId, guildId, ticketNumber, true);
 
+    // Try to apply one ticket immediately for the current round if available
+    let appliedNow = false;
+    try {
+        const activeTickets = await db.getActiveLotteryTickets(guildId);
+        const numberTaken = activeTickets.some(t => t.ticket_number === ticketNumber);
+        if (!numberTaken) {
+            const economy = await db.getUserEconomy(userId, guildId);
+            if (economy.wallet >= AUTO_TICKET_PRICE) {
+                economy.wallet -= AUTO_TICKET_PRICE;
+                await db.updateUserEconomy(userId, guildId, economy);
+                try {
+                    await db.buyLotteryTicket(userId, guildId, ticketNumber, AUTO_TICKET_PRICE);
+                    await db.addTransaction(userId, guildId, 'autoticket', -AUTO_TICKET_PRICE, { ticket_number: ticketNumber, immediate: true });
+                    appliedNow = true;
+                    if (!lotteryTimers.has(guildId)) {
+                        scheduleLotteryTimer({ guildId, client, db, guildName: message.guild.name });
+                    }
+                } catch (err) {
+                    // refund on failure
+                    const econ2 = await db.getUserEconomy(userId, guildId);
+                    econ2.wallet += AUTO_TICKET_PRICE;
+                    await db.updateUserEconomy(userId, guildId, econ2);
+                }
+            }
+        }
+    } catch (_) {}
+
     const embed = new EmbedBuilder()
         .setColor('#22c55e')
         .setTitle('✅ Auto-Ticket Enabled')
@@ -1083,12 +1176,14 @@ async function setAutoTicketCommand(message, args, client, db) {
         .addFields(
             { name: 'Number', value: `#${ticketNumber}`, inline: true },
             { name: 'Price per Round', value: `$${AUTO_TICKET_PRICE.toLocaleString()}`, inline: true },
-            { name: 'Note', value: 'Requires wallet funds at draw time. Subscriptions reset after a jackpot winner.' }
+            { name: 'Applied Now', value: appliedNow ? 'Yes — 1 ticket purchased' : 'No — Will apply next round', inline: true },
+            { name: 'Note', value: 'Requires wallet funds. Subscriptions reset after a jackpot winner.' }
         );
     await message.reply({ embeds: [embed] });
 }
 
 async function cancelAutoTicketCommand(message, client, db) {
+    ensureAutoLotteryMethods(db);
     const userId = message.author.id;
     const guildId = message.guild.id;
     const existing = await db.getAutoTicket(userId, guildId);
@@ -1103,6 +1198,7 @@ async function cancelAutoTicketCommand(message, client, db) {
 }
 
 async function autoTicketStatusCommand(message, client, db) {
+    ensureAutoLotteryMethods(db);
     const userId = message.author.id;
     const guildId = message.guild.id;
     const existing = await db.getAutoTicket(userId, guildId);
@@ -1232,6 +1328,7 @@ async function handleLotteryDraw({ guildId, client, db, embed = null, tickets, g
         }
 
         // Clear all auto-subscriptions in this guild after a win (reset)
+        ensureAutoLotteryMethods(db);
         try {
             const subs = await db.getAutoTicketsForGuild(guildId);
             for (const s of subs) {
@@ -1259,6 +1356,7 @@ async function handleLotteryDraw({ guildId, client, db, embed = null, tickets, g
 
     // After draw, auto-apply subscriptions for the new round
     try {
+        ensureAutoLotteryMethods(db);
         await applyAutoSubscriptions({ guildId, client, db, guildName });
     } catch (_) {}
 }
