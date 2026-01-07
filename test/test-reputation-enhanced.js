@@ -109,7 +109,6 @@ async function runEnhancedTests() {
             const canGive1 = await repService.canGiveRep(charlie, eve, guild);
             
             // Manually clear daily count (simulate next day)
-            const dailyKey = `${guild.id}_${charlie.id}`;
             if (db.data.repLogs && db.data.repLogs[guild.id]) {
                 db.data.repLogs[guild.id] = db.data.repLogs[guild.id].filter(
                     log => log.giver_id !== charlie.id || 
