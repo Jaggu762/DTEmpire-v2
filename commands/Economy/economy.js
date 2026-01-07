@@ -37,15 +37,30 @@ const JOBS = [
 ];
 
 const LOTTERY_TICKET_PRICE = 1000;
-const LOTTERY_JACKPOT_BASE = 10000; // reduced from 100000 to make wins smaller
+const LOTTERY_JACKPOT_BASE = 100000; // initial base for first round
+const ROLLOVER_INCREMENT = 10000; // added each rollover round (1x, 2x, 3x ...)
 const MAX_LOTTERY_TICKETS = 5;
 const LOTTERY_TIMER_MS = 10 * 60 * 1000; // 10 minutes from first ticket purchase
 
 // In-memory timers to auto-draw lottery after the first ticket
 const lotteryTimers = new Map(); // guildId -> setTimeout handle
 const lotteryStartTimes = new Map(); // guildId -> timestamp when timer started
-const accumulatedJackpots = new Map(); // guildId -> accumulated jackpot amount
+const accumulatedJackpots = new Map(); // legacy, no longer used in calc (kept for compatibility)
 const lastLotteryResults = new Map(); // guildId -> { timestamp, winningNumber, pot, winnerUserId|null, rolledOver:boolean }
+const carryPots = new Map(); // guildId -> carried pot from previous round
+const rolloverCounts = new Map(); // guildId -> consecutive rollovers since last win
+
+function computeCurrentPot(guildId, ticketsCount) {
+    const carry = carryPots.get(guildId) || 0;
+    const roll = rolloverCounts.get(guildId) || 0;
+    if (carry > 0) {
+        // Example: Round 2: carry + 1*10k + tickets; Round 3: carry + 2*10k + tickets
+        return carry + (Math.max(roll, 1) * ROLLOVER_INCREMENT) + (ticketsCount * LOTTERY_TICKET_PRICE);
+    } else {
+        // First round: base + tickets
+        return LOTTERY_JACKPOT_BASE + (ticketsCount * LOTTERY_TICKET_PRICE);
+    }
+}
 
 module.exports = {
     name: 'economy',
@@ -804,8 +819,7 @@ async function lotteryInfo(message, client, db) {
     
     // Get active tickets
     const activeTickets = await db.getActiveLotteryTickets(guildId);
-    const accumulated = accumulatedJackpots.get(guildId) || 0;
-    const totalPot = LOTTERY_JACKPOT_BASE + (activeTickets.length * LOTTERY_TICKET_PRICE) + accumulated;
+    const totalPot = computeCurrentPot(guildId, activeTickets.length);
     const uniquePlayers = new Set(activeTickets.map(t => t.user_id)).size;
     
     const embed = new EmbedBuilder()
@@ -850,8 +864,7 @@ async function lotteryResult(message, client, db) {
 
     // Compute current jackpot (includes any rollover + current tickets)
     const activeTickets = await db.getActiveLotteryTickets(guildId);
-    const accumulated = accumulatedJackpots.get(guildId) || 0;
-    const currentPot = LOTTERY_JACKPOT_BASE + (activeTickets.length * LOTTERY_TICKET_PRICE) + accumulated;
+    const currentPot = computeCurrentPot(guildId, activeTickets.length);
 
     const embed = new EmbedBuilder()
         .setColor('#8b5cf6')
@@ -879,8 +892,9 @@ async function lotteryResult(message, client, db) {
 
     if (!last.winnerUserId) {
         // No winner last time: show rollover info and current pool
+        const carry = carryPots.get(guildId) || last.pot || 0;
         embed.addFields(
-            { name: '♻️ Rolled Over', value: `$${(accumulated).toLocaleString()}`, inline: true },
+            { name: '♻️ Rolled Over', value: `$${carry.toLocaleString()}`, inline: true },
             { name: '💰 Current Prize Pool', value: `$${currentPot.toLocaleString()}`, inline: true },
             { name: '🎟️ Active Tickets', value: `${activeTickets.length}`, inline: true }
         );
@@ -961,8 +975,7 @@ async function buyLotteryTicket(message, args, client, db) {
         ticket_number: ticketNumber
     });
     
-    const accumulated = accumulatedJackpots.get(guildId) || 0;
-    const currentJackpot = LOTTERY_JACKPOT_BASE + (updatedTickets.length * LOTTERY_TICKET_PRICE) + accumulated;
+    const currentJackpot = computeCurrentPot(guildId, updatedTickets.length);
     
     const embed = new EmbedBuilder()
         .setColor('#ff00ff')
@@ -973,7 +986,7 @@ async function buyLotteryTicket(message, args, client, db) {
             { name: 'Ticket Price', value: `$${LOTTERY_TICKET_PRICE}`, inline: true },
             { name: 'Your Tickets', value: `${updatedUserTickets.length}/${MAX_LOTTERY_TICKETS}`, inline: true },
             { name: 'Current Jackpot', value: `$${currentJackpot.toLocaleString()}`, inline: false },
-            { name: 'Drawing', value: 'When **10 tickets** are sold & **2+ players** joined', inline: true }
+            { name: 'Drawing', value: 'Draw runs 10 minutes after the first ticket. Timer does not reset.', inline: true }
         );
     
     // Schedule draw if no timer is running (handles first ticket or bot restart)
@@ -1060,8 +1073,7 @@ async function handleLotteryDraw({ guildId, client, db, embed = null, tickets, g
     const winningNumber = Math.floor(Math.random() * 100) + 1;
     const matchingTickets = tickets.filter(t => t.ticket_number === winningNumber);
     const winnerTicket = matchingTickets.length > 0 ? matchingTickets[Math.floor(Math.random() * matchingTickets.length)] : null;
-    const accumulated = accumulatedJackpots.get(guildId) || 0;
-    const finalPot = LOTTERY_JACKPOT_BASE + (tickets.length * LOTTERY_TICKET_PRICE) + accumulated;
+    const finalPot = computeCurrentPot(guildId, tickets.length);
 
     // Mark this round as drawn for all tickets (even if no winner)
     if (typeof db.drawLottery === 'function') {
@@ -1087,8 +1099,9 @@ async function handleLotteryDraw({ guildId, client, db, embed = null, tickets, g
             rolledOver: false
         });
 
-        // Reset accumulated jackpot since someone won
-        accumulatedJackpots.delete(guildId);
+        // Reset rollover state since someone won
+        carryPots.delete(guildId);
+        rolloverCounts.delete(guildId);
 
         // DM winner
         try {
@@ -1100,8 +1113,9 @@ async function handleLotteryDraw({ guildId, client, db, embed = null, tickets, g
             embed.addFields({ name: '🎉 JACKPOT DRAWN!', value: `Winning Number: #${winningNumber}\nWinner: <@${winnerUserId}>\nPot: $${finalPot.toLocaleString()}`, inline: false });
         }
     } else {
-        // No winner - accumulate the pot for next round
-        accumulatedJackpots.set(guildId, finalPot);
+        // No winner - carry full pot forward and increment rollover count
+        carryPots.set(guildId, finalPot);
+        rolloverCounts.set(guildId, (rolloverCounts.get(guildId) || 0) + 1);
 
         // Store last result (rollover)
         lastLotteryResults.set(guildId, {
