@@ -1533,7 +1533,9 @@ class Database {
         
         const current = await this.getUserReputation(userId, guildId);
         current.rep += amount;
-        current.last_received_at = Date.now();
+        if (amount > 0) {
+            current.last_received_at = Date.now();
+        }
         
         this.data.reputation[key] = current;
         this.save();
