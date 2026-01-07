@@ -2,7 +2,7 @@
 
 ## 🚀 Quick Start
 
-The reputation/karma system is **enabled by default** for all servers. Admins can configure or disable it per their needs.
+The reputation/karma system is **enabled by default** for all servers. Admins can configure logging and role rewards, but disabling the system or restricting it to specific channels is not currently supported.
 
 ## 📋 Prerequisites
 
