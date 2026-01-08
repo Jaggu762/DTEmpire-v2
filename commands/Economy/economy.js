@@ -938,6 +938,9 @@ async function sellProperty(message, args, client, db) {
 async function lotteryInfo(message, client, db) {
     const guildId = message.guild.id;
     
+    // Auto-resume orphaned timer if needed
+    await resumeOrphanedTimers(guildId, client, db, message.guild.name);
+    
     // Get active tickets
     const activeTickets = await db.getActiveLotteryTickets(guildId);
     const totalPot = computeCurrentPot(guildId, activeTickets.length);
@@ -1222,12 +1225,57 @@ async function autoTicketStatusCommand(message, client, db) {
 }
 
 // Determine if lottery should draw now: 2+ tickets OR 1 ticket older than 5 minutes
-function clearLotteryTimer(guildId) {
+function clearLotteryTimer(guildId, db = null) {
     if (lotteryTimers.has(guildId)) {
         clearTimeout(lotteryTimers.get(guildId));
         lotteryTimers.delete(guildId);
     }
     lotteryStartTimes.delete(guildId);
+    
+    // Clear from DB
+    if (db && typeof db.clearLotteryTimerStart === 'function') {
+        db.clearLotteryTimerStart(guildId).catch(() => {});
+    }
+}
+
+async function resumeOrphanedTimers(guildId, client, db, guildName) {
+    // Check if there are active tickets but no timer running
+    if (lotteryTimers.has(guildId)) return; // timer already running
+    
+    const activeTickets = await db.getActiveLotteryTickets(guildId);
+    if (activeTickets.length === 0) return; // no tickets
+    
+    // Check if we have a saved start time
+    const saved = await db.getLotteryTimerStart(guildId);
+    if (!saved || !saved.startTime) {
+        // No saved timer, start a new one
+        scheduleLotteryTimer({ guildId, client, db, guildName });
+        return;
+    }
+    
+    const elapsed = Date.now() - saved.startTime;
+    const remaining = LOTTERY_TIMER_MS - elapsed;
+    
+    if (remaining <= 0) {
+        // Timer expired while bot was offline, draw now
+        await handleLotteryDraw({ guildId, client, db, tickets: activeTickets, guildName });
+        clearLotteryTimer(guildId, db);
+    } else {
+        // Resume timer with remaining time
+        lotteryStartTimes.set(guildId, saved.startTime);
+        const timer = setTimeout(async () => {
+            try {
+                const tickets = await db.getActiveLotteryTickets(guildId);
+                if (tickets && tickets.length >= 1) {
+                    await handleLotteryDraw({ guildId, client, db, tickets, guildName });
+                }
+            } catch (err) {}
+            finally {
+                clearLotteryTimer(guildId, db);
+            }
+        }, remaining);
+        lotteryTimers.set(guildId, timer);
+    }
 }
 
 function scheduleLotteryTimer({ guildId, client, db, guildName }) {
@@ -1235,6 +1283,11 @@ function scheduleLotteryTimer({ guildId, client, db, guildName }) {
     
     const startTime = Date.now();
     lotteryStartTimes.set(guildId, startTime);
+    
+    // Persist start time to DB
+    if (db && typeof db.setLotteryTimerStart === 'function') {
+        db.setLotteryTimerStart(guildId, startTime).catch(() => {});
+    }
     
     const timer = setTimeout(async () => {
         try {
@@ -1246,7 +1299,7 @@ function scheduleLotteryTimer({ guildId, client, db, guildName }) {
         } catch (err) {
             // swallow errors; timer will be cleared regardless
         } finally {
-            clearLotteryTimer(guildId);
+            clearLotteryTimer(guildId, db);
         }
     }, LOTTERY_TIMER_MS);
     lotteryTimers.set(guildId, timer);
@@ -1268,7 +1321,7 @@ async function forceLottery(message, client, db) {
     await message.reply('🎲 Forcing lottery draw now...');
 
     // Clear any existing timer
-    clearLotteryTimer(guildId);
+    clearLotteryTimer(guildId, db);
 
     // Trigger the draw
     await handleLotteryDraw({ 
