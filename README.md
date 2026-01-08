@@ -24,8 +24,8 @@
 **DTEmpire** is a feature-rich Discord bot designed to cover everything a normal server needs — from **AI integration** and **music playback** to **moderation**, **economy**, **tickets**, and **automation**.
 
 - Prefix: `^`
-- Version: **2.7.2**
-- Total Commands: **51**
+- Version: **2.8.0**
+- Total Commands: **54**
 - Categories: **12**
 - Built with **Discord.js v14**
 
@@ -44,18 +44,47 @@
 
 ---
 
-## 🆕 What's New — January 2026 (v2.7.2)
+## 🆕 What's New — January 2026 (v2.8.0)
 
-### 💰 Economy Updates
+### 💰 Advanced Banking System
+- **Bank Interest:** 1% daily interest on all bank deposits (passive income!)
+- **Fixed Deposits (FD):** Lock funds for 1-365 days at 3% daily interest rate (higher returns for long-term saving)
+  - Commands: `^economy fd create <amount> <days>` | `^economy fd view` | `^economy fd withdraw`
+  - Auto-unlock and claim interest when matured
+- **Loan System:** Borrow up to 80% of your property value with 5% monthly interest
+  - Commands: `^economy loan apply <amount>` | `^economy loan repay <amount>` | `^economy loan status`
+  - Properties locked until loan is fully repaid (EMI payment system)
+
+### 📊 Income Tax & Fee System
+- **Progressive Tax Rates by Income Source:**
+  - Job Salary: 10% tax
+  - Property Income: 8% tax
+  - Gambling Winnings: 15% tax
+  - Trading/Transfers: 5% tax
+  - Lottery Winnings: 20% tax
+- **Transaction Fees:** 2% fee on transfers over $50,000 (prevents wealth manipulation)
+- **Auto-Tax Collection:** All taxes automatically collected into a server-wide pool
+
+### 🎁 Tax Collection Giveaways (Community Feature!)
+- **Automatic Giveaways:** When server taxes reach thresholds (500k → 1M → 1.5M → etc.), auto-giveaway triggered
+- **How it Works:** 30-second reaction-based giveaway; winner takes entire tax pool!
+- **No Winner?** Pool carries over to next threshold (growing prize pool!)
+- **Admin Setup:** 
+  - `^economy taxgiveaway setchannel #channel` - designate giveaway channel
+  - `^economy taxgiveaway status` - view current tax pool & progress
+  - `^economy taxgiveaway trigger` - manually start giveaway
+
+### 💰 Economy Updates (v2.7.2 carry-over)
 - **Daily Check-In** (`^economy daily` / `checkin` / `streak`): 24h cooldown with a 48h grace window to keep streaks, streak-based coin bonuses, XP, and reputation points.
 - **Lottery System Overhaul:** 
   - 10-minute timer starts automatically when the first ticket is purchased
-  - Timer persists through bot restarts (auto-resumes on next ticket purchase)
+  - Timer persists through bot restarts (auto-resumes when the bot is back online; resumes countdown on first lottery command or ticket purchase)
   - **Rolling Jackpot:** If no one wins, the entire pot rolls over to the next round and keeps accumulating until someone wins!
   - Live countdown display shows time remaining until draw
   - Admin command `^economy forcelottery` to trigger draws instantly
   - Pick numbers 1-100, matching the random draw wins the accumulated jackpot
   - New `^economy lotteryresult` to view the last draw (winner or rollover) and current prize pool
+  - Optional auto-ticket subscriptions: choose a number once, auto-apply every round (2k/round), immediate apply when enabled if available
 - **Job Applications:** Jobs require player level now; list shows availability based on your level.
 - **Steal Command Stability:** Fixed corrupt logic to restore victim DMs, fines, and cooldowns.
 
@@ -84,13 +113,17 @@
 
 ### 💰 Economy (1)
 - `economy` – Complete economy system:
-  - **Jobs:** Work, apply, level up (5 job tiers)
+  - **Jobs:** Work, apply, level up (5 job tiers, with 10% income tax)
   - **Properties:** Buy/sell houses, shops, lands, businesses
   - **Banking:** Deposit, withdraw, collect daily rent
+    - **Bank Interest:** 1% daily passive income on deposits
+    - **Fixed Deposits:** Lock funds 1-365 days for 3% daily interest
+    - **Loans:** Borrow up to 80% of property value (5% monthly interest, properties locked)
     - **Daily Rewards:** Check-in for coins, XP, streaks & bonuses
-  - **Trading:** Pay users, steal from others (50% success)
-  - **Gambling:** Race, football betting, casino games
-  - **Lottery:** Buy tickets (1-100), 10-min auto-draw, rolling jackpots, results viewer (`^economy lotteryresult`), admin draw (`^economy forcelottery`)
+  - **Trading:** Pay users (2% fee on 50k+), steal from others (50% success, 5% tax)
+  - **Gambling:** Race, football betting, casino games (15% tax on winnings)
+  - **Lottery:** Buy tickets (1-100), 10-min auto-draw, rolling jackpots, auto-ticket subscriptions, results viewer (`^economy lotteryresult`), admin draw (`^economy forcelottery`), 20% tax on winnings
+  - **Tax Giveaways:** Community giveaways funded by server taxes (every 500k collected!)
   - **Leaderboard:** Top richest players
   - **Profile:** View economy stats & transactions  
 
@@ -152,8 +185,8 @@
 ```text
 🤖 DTEmpire Help Menu
 Prefix: ^
-Version: 2.7.2
-Total Commands: 45
+Version: 2.8.0
+Total Commands: 54
 
 📁 AI (4)
 aichat, imagegen, tts, videogen
@@ -166,7 +199,8 @@ setguildjoin
 
 📁 Economy (1)
 economy (work, jobs, properties, buy, sell, 
-lottery, buyticket, lotteryresult, forcelottery, bank, steal, pay, race, football, 
+lottery, buyticket, lotteryresult, forcelottery, bank, fd, loan,
+taxgiveaway, steal, pay, race, football, 
 gamble, leaderboard, profile)
 
 📁 Fun (3)
@@ -319,6 +353,6 @@ See the [LICENSE](LICENSE) file for details.
 ---
 
 <p align="center">
-  DTEmpire v2.7.2 • Built with ❤️ for the Discord community
+  DTEmpire v2.8.0 • Built with ❤️ for the Discord community
 </p>
 
