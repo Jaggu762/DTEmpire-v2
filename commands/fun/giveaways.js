@@ -24,6 +24,10 @@ module.exports = {
             db.data.giveaways = {};
             db.save();
         }
+        if (!db.data.giveawayPingRole) {
+            db.data.giveawayPingRole = {};
+            db.save();
+        }
         
         if (!subCommand) {
             // Show help
@@ -32,11 +36,12 @@ module.exports = {
                 .setTitle('🎉 Giveaway Management')
                 .setDescription('Create and manage giveaways in your server!')
                 .addFields(
-                    { name: '🎁 Create Giveaway', value: '`^giveaway create <duration> <winners> <prize>`\nExample: `^giveaway create 1h 1 Discord Nitro`', inline: false },
+                    { name: '🎁 Create Giveaway', value: '`^giveaway create [#channel] <duration> <winners> <prize>`\nExample: `^giveaway create #giveaways 1h 1 Discord Nitro`', inline: false },
                     { name: '📋 List Giveaways', value: '`^giveaway list` - Show active giveaways', inline: false },
                     { name: '🔚 End Giveaway', value: '`^giveaway end <message_id>` - End a giveaway early', inline: false },
                     { name: '🔄 Reroll', value: '`^giveaway reroll <message_id>` - Reroll winners', inline: false },
-                    { name: '❌ Delete', value: '`^giveaway delete <message_id>` - Delete a giveaway', inline: false }
+                    { name: '❌ Delete', value: '`^giveaway delete <message_id>` - Delete a giveaway', inline: false },
+                    { name: '🔔 Set Ping Role', value: '`^giveaway setpingrole @role` to ping a role on new giveaways, or `^giveaway setpingrole off` to disable', inline: false }
                 )
                 .setFooter({ text: 'Giveaway System | DTEmpire v2.6.9' });
             
@@ -47,6 +52,10 @@ module.exports = {
             case 'create':
             case 'start':
                 await handleCreateGiveaway(message, args, db);
+                break;
+
+            case 'setpingrole':
+                await handleSetPingRole(message, args, db);
                 break;
                 
             case 'list':
@@ -72,13 +81,22 @@ module.exports = {
 };
 
 async function handleCreateGiveaway(message, args, db) {
-    if (args.length < 4) {
-        return message.reply('❌ Usage: `^giveaway create <duration> <winners> <prize>`');
+    // Optional channel as first argument
+    let channel = message.channel;
+    let durationArgIndex = 1;
+    const possibleChannel = message.mentions.channels.first() || (args[1] && message.guild.channels.cache.get(args[1]));
+    if (possibleChannel) {
+        channel = possibleChannel;
+        durationArgIndex = 2;
+    }
+
+    if (args.length < (possibleChannel ? 5 : 4)) {
+        return message.reply('❌ Usage: `^giveaway create [#channel] <duration> <winners> <prize>`');
     }
     
-    const duration = ms(args[1]);
-    const winners = parseInt(args[2]);
-    const prize = args.slice(3).join(' ');
+    const duration = ms(args[durationArgIndex]);
+    const winners = parseInt(args[durationArgIndex + 1]);
+    const prize = args.slice(durationArgIndex + 2).join(' ');
     
     if (!duration || duration < 10000) {
         return message.reply('❌ Please provide a valid duration (minimum 10 seconds)!');
@@ -91,6 +109,9 @@ async function handleCreateGiveaway(message, args, db) {
     const endTime = Date.now() + duration;
     const giveawayId = Date.now().toString();
     
+    const pingRoleId = db.data.giveawayPingRole[message.guild.id];
+    const pingRole = pingRoleId ? message.guild.roles.cache.get(pingRoleId) : null;
+
     // Create giveaway embed
     const giveawayEmbed = new EmbedBuilder()
         .setColor('#00ff00')
@@ -114,8 +135,8 @@ async function handleCreateGiveaway(message, args, db) {
         );
     
     // Send giveaway message
-    const giveawayMessage = await message.channel.send({
-        content: '🎉 **NEW GIVEAWAY!** 🎉',
+    const giveawayMessage = await channel.send({
+        content: `${pingRole ? `${pingRole}` : ''} 🎉 **NEW GIVEAWAY!** 🎉`,
         embeds: [giveawayEmbed],
         components: [row]
     });
@@ -124,7 +145,7 @@ async function handleCreateGiveaway(message, args, db) {
     db.data.giveaways[giveawayId] = {
         id: giveawayId,
         guildId: message.guild.id,
-        channelId: message.channel.id,
+        channelId: channel.id,
         messageId: giveawayMessage.id,
         prize: prize,
         winners: winners,
@@ -151,6 +172,31 @@ async function handleCreateGiveaway(message, args, db) {
             await endGiveaway(giveaway, message.client, db, false);
         }
     }, duration);
+}
+
+async function handleSetPingRole(message, args, db) {
+    if (args.length < 2) {
+        const currentId = db.data.giveawayPingRole[message.guild.id];
+        const currentRole = currentId ? message.guild.roles.cache.get(currentId) : null;
+        return message.reply(`ℹ️ Current ping role: ${currentRole ? currentRole.toString() : 'None set'}\nUsage: \`^giveaway setpingrole @role\` or \`^giveaway setpingrole off\``);
+    }
+
+    const target = message.mentions.roles.first();
+    const keyword = args[1].toLowerCase();
+
+    if (!target && keyword !== 'off' && keyword !== 'none') {
+        return message.reply('❌ Please mention a role or use `off` to disable.');
+    }
+
+    if (keyword === 'off' || keyword === 'none') {
+        delete db.data.giveawayPingRole[message.guild.id];
+        db.save();
+        return message.reply('🔕 Giveaway ping role disabled.');
+    }
+
+    db.data.giveawayPingRole[message.guild.id] = target.id;
+    db.save();
+    return message.reply(`🔔 Giveaway ping role set to ${target.toString()}. New giveaways will mention this role.`);
 }
 
 async function handleListGiveaways(message, db) {
