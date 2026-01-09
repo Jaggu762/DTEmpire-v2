@@ -39,7 +39,7 @@ const JOBS = [
     { id: 'senior_vp', name: 'Senior Vice President', salary: 1000000, level: 15, xp_required: 10500 },
     { id: 'president', name: 'President', salary: 1250000, level: 17, xp_required: 13500 },
     { id: 'cfo', name: 'Chief Financial Officer', salary: 1500000, level: 19, xp_required: 16500 },
-    { id: 'ceo', name: 'Chief Executive Officer (CEO)', salary: 170000, level: 21, xp_required: 20000 }
+    { id: 'ceo', name: 'Chief Executive Officer (CEO)', salary: 1700000, level: 21, xp_required: 20000 }
 ];
 
 const LOTTERY_TICKET_PRICE = 1000;
