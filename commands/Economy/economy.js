@@ -70,9 +70,24 @@ const lastLotteryResults = new Map(); // guildId -> { timestamp, winningNumber, 
 const carryPots = new Map(); // guildId -> carried pot from previous round
 const rolloverCounts = new Map(); // guildId -> consecutive rollovers since last win
 
-function computeCurrentPot(guildId, ticketsCount) {
-    const carry = carryPots.get(guildId) || 0;
-    const roll = rolloverCounts.get(guildId) || 0;
+async function computeCurrentPot(guildId, ticketsCount, db) {
+    // Load from memory first, fallback to database if not in memory
+    let carry = carryPots.get(guildId);
+    let roll = rolloverCounts.get(guildId);
+    
+    if (carry === undefined && db) {
+        ensureAutoLotteryMethods(db);
+        const saved = await db.getLotteryJackpot(guildId);
+        carry = saved.carryPot || 0;
+        roll = saved.rolloverCount || 0;
+        // Sync to memory
+        if (carry > 0) carryPots.set(guildId, carry);
+        if (roll > 0) rolloverCounts.set(guildId, roll);
+    }
+    
+    carry = carry || 0;
+    roll = roll || 0;
+    
     if (carry > 0) {
         // Example: Round 2: carry + 1*10k + tickets; Round 3: carry + 2*10k + tickets
         return carry + (Math.max(roll, 1) * ROLLOVER_INCREMENT) + (ticketsCount * LOTTERY_TICKET_PRICE);
@@ -149,6 +164,39 @@ function ensureAutoLotteryMethods(db) {
         db.clearLotteryTimerStart = async function(guildId) {
             if (db.data.lotteryTimers && db.data.lotteryTimers[guildId]) {
                 delete db.data.lotteryTimers[guildId];
+                if (typeof db.save === 'function') db.save();
+            }
+        };
+    }
+
+    // Jackpot persistence methods
+    if (!db.data.lotteryJackpots) db.data.lotteryJackpots = {};
+
+    if (typeof db.setLotteryJackpot !== 'function') {
+        db.setLotteryJackpot = async function(guildId, carryPot, rolloverCount) {
+            if (!db.data.lotteryJackpots) db.data.lotteryJackpots = {};
+            db.data.lotteryJackpots[guildId] = { 
+                carryPot: carryPot || 0, 
+                rolloverCount: rolloverCount || 0,
+                updatedAt: Date.now() 
+            };
+            if (typeof db.save === 'function') db.save();
+        };
+    }
+
+    if (typeof db.getLotteryJackpot !== 'function') {
+        db.getLotteryJackpot = async function(guildId) {
+            if (!db.data.lotteryJackpots || !db.data.lotteryJackpots[guildId]) {
+                return { carryPot: 0, rolloverCount: 0 };
+            }
+            return db.data.lotteryJackpots[guildId];
+        };
+    }
+
+    if (typeof db.clearLotteryJackpot !== 'function') {
+        db.clearLotteryJackpot = async function(guildId) {
+            if (db.data.lotteryJackpots && db.data.lotteryJackpots[guildId]) {
+                delete db.data.lotteryJackpots[guildId];
                 if (typeof db.save === 'function') db.save();
             }
         };
@@ -1061,7 +1109,7 @@ async function lotteryInfo(message, client, db) {
     
     // Get active tickets
     const activeTickets = await db.getActiveLotteryTickets(guildId);
-    const totalPot = computeCurrentPot(guildId, activeTickets.length);
+    const totalPot = await computeCurrentPot(guildId, activeTickets.length, db);
     const uniquePlayers = new Set(activeTickets.map(t => t.user_id)).size;
     
     const embed = new EmbedBuilder()
@@ -1106,7 +1154,7 @@ async function lotteryResult(message, client, db) {
 
     // Compute current jackpot (includes any rollover + current tickets)
     const activeTickets = await db.getActiveLotteryTickets(guildId);
-    const currentPot = computeCurrentPot(guildId, activeTickets.length);
+    const currentPot = await computeCurrentPot(guildId, activeTickets.length, db);
 
     const embed = new EmbedBuilder()
         .setColor('#8b5cf6')
@@ -1217,7 +1265,7 @@ async function buyLotteryTicket(message, args, client, db) {
         ticket_number: ticketNumber
     });
     
-    const currentJackpot = computeCurrentPot(guildId, updatedTickets.length);
+    const currentJackpot = await computeCurrentPot(guildId, updatedTickets.length, db);
     
     const embed = new EmbedBuilder()
         .setColor('#ff00ff')
@@ -1324,7 +1372,7 @@ async function autoTicketStatusCommand(message, client, db) {
     const guildId = message.guild.id;
     const existing = await db.getAutoTicket(userId, guildId);
     const activeTickets = await db.getActiveLotteryTickets(guildId);
-    const currentPot = computeCurrentPot(guildId, activeTickets.length);
+    const currentPot = await computeCurrentPot(guildId, activeTickets.length, db);
 
     const embed = new EmbedBuilder().setColor('#3b82f6').setTitle('🎟️ Auto-Ticket Status');
     if (!existing) {
@@ -1458,7 +1506,7 @@ async function handleLotteryDraw({ guildId, client, db, embed = null, tickets, g
     const winningNumber = Math.floor(Math.random() * 100) + 1;
     const matchingTickets = tickets.filter(t => t.ticket_number === winningNumber);
     const winnerTicket = matchingTickets.length > 0 ? matchingTickets[Math.floor(Math.random() * matchingTickets.length)] : null;
-    const finalPot = computeCurrentPot(guildId, tickets.length);
+    const finalPot = await computeCurrentPot(guildId, tickets.length, db);
 
     // Mark this round as drawn for all tickets (even if no winner)
     if (typeof db.drawLottery === 'function') {
@@ -1487,6 +1535,8 @@ async function handleLotteryDraw({ guildId, client, db, embed = null, tickets, g
         // Reset rollover state since someone won
         carryPots.delete(guildId);
         rolloverCounts.delete(guildId);
+        ensureAutoLotteryMethods(db);
+        await db.clearLotteryJackpot(guildId);
 
         // DM winner
         try {
@@ -1508,8 +1558,11 @@ async function handleLotteryDraw({ guildId, client, db, embed = null, tickets, g
         } catch (_) {}
     } else {
         // No winner - carry full pot forward and increment rollover count
+        const newRolloverCount = (rolloverCounts.get(guildId) || 0) + 1;
         carryPots.set(guildId, finalPot);
-        rolloverCounts.set(guildId, (rolloverCounts.get(guildId) || 0) + 1);
+        rolloverCounts.set(guildId, newRolloverCount);
+        ensureAutoLotteryMethods(db);
+        await db.setLotteryJackpot(guildId, finalPot, newRolloverCount);
 
         // Store last result (rollover)
         lastLotteryResults.set(guildId, {
