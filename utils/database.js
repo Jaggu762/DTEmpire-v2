@@ -20,8 +20,7 @@ class Database {
             ticketLogs: {}, // Added for ticket logs
             birthdays: {}, // Added for birthday system
             polls: {}, // Added for poll system
-            suggestions: {}, // Added for suggestion system
-            channelRestrictions: {} // Added for command channel restrictions
+            suggestions: {} // Added for suggestion system
         };
         this.dbPath = path.join(__dirname, '..', 'data', 'database.json');
     }
@@ -1550,50 +1549,6 @@ class Database {
             }
         }
         return birthdays;
-    }
-
-    // ========== CHANNEL RESTRICTIONS METHODS ==========
-    async getChannelRestrictions(guildId) {
-        if (!this.data.channelRestrictions) {
-            this.data.channelRestrictions = {};
-        }
-        if (!this.data.channelRestrictions[guildId]) {
-            this.data.channelRestrictions[guildId] = {};
-        }
-        return this.data.channelRestrictions[guildId];
-    }
-
-    async setCommandChannels(guildId, category, channels) {
-        if (!this.data.channelRestrictions) {
-            this.data.channelRestrictions = {};
-        }
-        if (!this.data.channelRestrictions[guildId]) {
-            this.data.channelRestrictions[guildId] = {};
-        }
-        
-        this.data.channelRestrictions[guildId][category] = channels;
-        this.save();
-        return true;
-    }
-
-    async removeCommandChannels(guildId, category) {
-        if (!this.data.channelRestrictions?.[guildId]?.[category]) {
-            return false;
-        }
-        
-        delete this.data.channelRestrictions[guildId][category];
-        this.save();
-        return true;
-    }
-
-    async clearAllChannelRestrictions(guildId) {
-        if (!this.data.channelRestrictions?.[guildId]) {
-            return false;
-        }
-        
-        delete this.data.channelRestrictions[guildId];
-        this.save();
-        return true;
     }
 }
 
