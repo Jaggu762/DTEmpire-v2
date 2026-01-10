@@ -1495,6 +1495,9 @@ async function autoTicketStatusCommand(message, client, db) {
             numbers = existing.numbers;
         } else if (existing.number) {
             numbers = [existing.number];
+        } else if (existing.numbers && typeof existing.numbers === 'string') {
+            // If stored as string, parse it
+            numbers = existing.numbers.split(',').map(n => parseInt(n.trim()));
         }
         
         const ticketCount = numbers.length;
@@ -1505,8 +1508,10 @@ async function autoTicketStatusCommand(message, client, db) {
             pricePerRound = ticketCount * 4000;
         }
         
+        const formattedNumbers = numbers.map(n => `#${n}`).join(', ');
+        
         embed.setDescription('Auto-ticket is active.').addFields(
-            { name: '🎟️ Your Numbers', value: numbers.map(n => `#${n}`).join(', '), inline: false },
+            { name: '🎟️ Your Numbers', value: formattedNumbers, inline: false },
             { name: '💰 Price per Round', value: `$${pricePerRound.toLocaleString()}`, inline: true },
             { name: '📊 Tickets', value: `${ticketCount}/5`, inline: true },
             { name: 'Since', value: `<t:${Math.floor(existing.created_at/1000)}:R>`, inline: true }
@@ -2697,6 +2702,7 @@ async function showProfile(message, client, db) {
     // Get lottery tickets
     const activeTickets = await db.getActiveLotteryTickets(guildId);
     const userTickets = activeTickets.filter(t => t.user_id === targetUserId);
+    const ticketDisplay = userTickets.length > 0 ? `${userTickets.length}: ${userTickets.map(t => `#${t.ticket_number}`).join(', ')}` : 'None';
     
     // Calculate net worth
     const netWorth = economy.total + (properties.total_property_value || 0);
@@ -2733,7 +2739,7 @@ async function showProfile(message, client, db) {
             { name: '📈 Property Value', value: `$${properties.total_property_value.toLocaleString()}`, inline: true },
             { name: '💰 Net Worth', value: `$${netWorth.toLocaleString()}`, inline: true },
             { name: '📊 Daily Income', value: `$${dailyIncome.toLocaleString()}`, inline: true },
-            { name: '🎫 Lottery Tickets', value: `${userTickets.length} active`, inline: true },
+            { name: '🎫 Lottery Tickets', value: ticketDisplay, inline: true },
             { name: '📅 Member Since', value: `<t:${Math.floor(message.guild.members.cache.get(targetUserId)?.joinedTimestamp / 1000) || 0}:R>`, inline: true }
         );
     
