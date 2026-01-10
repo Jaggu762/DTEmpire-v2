@@ -328,6 +328,9 @@ module.exports = {
             case 'taxgiveaway':
                 await taxGiveawayCommand(message, args.slice(1), client, db);
                 break;
+            case 'taxpay':
+                await taxpayCommand(message, args.slice(1), client, db);
+                break;
             case 'leaderboard':
                 await showLeaderboard(message, client, db);
                 break;
@@ -1630,7 +1633,13 @@ async function bankManagement(message, args, client, db) {
         const properties = await db.getUserProperties(userId, guildId);
         
         // Apply any pending interest
-        const pendingInterest = await applyBankInterest(userId, guildId, db);
+        await applyBankInterest(userId, guildId, db);
+        
+        // Refresh economy after applying interest
+        const updatedEconomy = await db.getUserEconomy(userId, guildId);
+        
+        // Calculate daily interest rate (what they'll earn per day)
+        const dailyInterest = Math.floor(updatedEconomy.bank * 0.01);
         
         // Calculate daily income
         let dailyIncome = 0;
@@ -1654,13 +1663,13 @@ async function bankManagement(message, args, client, db) {
             .setTitle('🏦 Bank Management')
             .setDescription('Manage your finances and collect daily income')
             .addFields(
-                { name: '💵 Wallet', value: `$${economy.wallet.toLocaleString()}`, inline: true },
-                { name: '🏦 Bank Balance', value: `$${economy.bank.toLocaleString()}`, inline: true },
-                { name: '💰 Total', value: `$${economy.total.toLocaleString()}`, inline: true },
+                { name: '💵 Wallet', value: `$${updatedEconomy.wallet.toLocaleString()}`, inline: true },
+                { name: '🏦 Bank Balance', value: `$${updatedEconomy.bank.toLocaleString()}`, inline: true },
+                { name: '💰 Total', value: `$${updatedEconomy.total.toLocaleString()}`, inline: true },
                 { name: '📈 Daily Income', value: `$${dailyIncome.toLocaleString()}`, inline: true },
                 { name: '🏘️ Property Value', value: `$${properties.total_property_value.toLocaleString()}`, inline: true },
-                { name: '💰 Net Worth', value: `$${(economy.total + properties.total_property_value).toLocaleString()}`, inline: true },
-                { name: '💸 Bank Interest (1% daily)', value: `Accrued: $${pendingInterest.toLocaleString()}`, inline: false }
+                { name: '💰 Net Worth', value: `$${(updatedEconomy.total + properties.total_property_value).toLocaleString()}`, inline: true },
+                { name: '💸 Bank Interest (1% daily)', value: `Next day: $${dailyInterest.toLocaleString()}`, inline: false }
             )
             .setFooter({ text: 'Use: ^economy bank deposit/withdraw/collect | New: fd (fixed deposits), loan (loans)' });
         
@@ -2352,20 +2361,20 @@ async function taxGiveawayCommand(message, args, client, db) {
             const embed = new EmbedBuilder()
                 .setColor('#FFD700')
                 .setTitle('🎁 TAX COLLECTION GIVEAWAY!')
-                .setDescription(`React with 🎉 within 30 seconds to participate and win!`)
+                .setDescription(`@here React with 🎉 within 1 hour to participate and win!`)
                 .addFields(
                     { name: '💰 Prize Pool', value: `$${giveawayAmount.toLocaleString()}`, inline: true },
-                    { name: '⏱️ Duration', value: '30 seconds', inline: true },
+                    { name: '⏱️ Duration', value: '1 hour', inline: true },
                     { name: '🏆 Winner', value: 'Will be randomly selected from reactions', inline: false }
                 )
                 .setFooter({ text: 'Tax collected from server transactions' });
             
-            const giveawayMsg = await giveawayChannel.send({ embeds: [embed] });
+            const giveawayMsg = await giveawayChannel.send({ content: '@here', embeds: [embed] });
             await giveawayMsg.react('🎉');
             
-            // Collect reactions for 30 seconds
+            // Collect reactions for 1 hour
             const filter = (reaction, user) => reaction.emoji.name === '🎉' && !user.bot;
-            const collected = await giveawayMsg.awaitReactions({ filter, time: 30000, max: 100 });
+            const collected = await giveawayMsg.awaitReactions({ filter, time: 3600000, max: 1000 });
             
             const reactions = giveawayMsg.reactions.cache.get('🎉');
             if (!reactions || reactions.count <= 1) {
@@ -2412,6 +2421,70 @@ async function taxGiveawayCommand(message, args, client, db) {
             return message.reply('❌ Error triggering giveaway. Please check channel permissions.');
         }
     }
+}
+
+// ========== TAXPAY COMMAND ==========
+async function taxpayCommand(message, args, client, db) {
+    const userId = message.author.id;
+    const guildId = message.guild.id;
+
+    if (args.length === 0 || isNaN(args[0])) {
+        return message.reply('❌ Usage: `^economy taxpay <amount>`\nExample: `^economy taxpay 5000`');
+    }
+
+    const amount = parseInt(args[0]);
+
+    if (amount < 100) {
+        return message.reply('❌ Minimum tax payment is $100.');
+    }
+
+    // Get user economy
+    const economy = await db.getUserEconomy(userId, guildId);
+
+    if (economy.wallet < amount) {
+        return message.reply(`❌ You only have $${economy.wallet.toLocaleString()} in your wallet!`);
+    }
+
+    // Deduct from wallet
+    economy.wallet -= amount;
+
+    // Add XP reward (1 XP per 1000 money)
+    const xpReward = Math.floor(amount / 1000);
+    economy.experience = (economy.experience || 0) + xpReward;
+
+    await db.updateUserEconomy(userId, guildId, economy);
+
+    // Add to server tax pool
+    if (!db.data.serverTaxPool) db.data.serverTaxPool = {};
+    if (!db.data.serverTaxPool[guildId]) {
+        db.data.serverTaxPool[guildId] = {
+            pending_pool: 0,
+            total_collected: 0,
+            next_giveaway_threshold: 50000,
+            last_giveaway: null
+        };
+    }
+
+    db.data.serverTaxPool[guildId].pending_pool += amount;
+    db.data.serverTaxPool[guildId].total_collected += amount;
+    db.save();
+
+    // Add transaction
+    await db.addTransaction(userId, guildId, 'taxpay', -amount, { xp_earned: xpReward });
+
+    const embed = new EmbedBuilder()
+        .setColor('#00FF00')
+        .setTitle('✅ Tax Payment Successful')
+        .setDescription(`Thank you for contributing to the server!`)
+        .addFields(
+            { name: '💰 Amount Paid', value: `$${amount.toLocaleString()}`, inline: true },
+            { name: '✨ XP Earned', value: `${xpReward} XP`, inline: true },
+            { name: '💼 New Wallet', value: `$${economy.wallet.toLocaleString()}`, inline: true },
+            { name: '🏆 Tax Pool', value: `$${db.data.serverTaxPool[guildId].pending_pool.toLocaleString()}`, inline: false }
+        )
+        .setFooter({ text: 'Your contribution helps the server economy!' });
+
+    await message.reply({ embeds: [embed] });
 }
 
 async function showLeaderboard(message, client, db) {
