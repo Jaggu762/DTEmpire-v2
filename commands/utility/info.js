@@ -17,7 +17,7 @@ module.exports = {
 
         const embed = new EmbedBuilder()
             .setColor('#0061ff')
-            .setTitle('🤖 DTEmpire Bot Information')
+            .setTitle('🤖 DemiseEmpire Bot Information')
             .setDescription('A comprehensive Discord bot with server management, AI features, economy, music, and more!')
             .setThumbnail(client.user.displayAvatarURL({ dynamic: true, size: 512 }))
             .addFields(
@@ -36,7 +36,7 @@ module.exports = {
                 value: '• Server Management\n• AI Chat & Image Generation\n• Economy System\n• Music Player\n• Auto Moderation\n• Logging System\n• Giveaways\n• Auto Rooms\n• Sticky Messages\n• Snipe Command\n• YouTube/Twitch/TikTok Notifications\n• And much more!'
             })
             .setFooter({ 
-                text: `DTEmpire v${client.botInfo.version} | Created by DargoTamber`,
+                text: `DemiseEmpire v${client.botInfo.version} | Created by Jaggu762`,
                 iconURL: client.user.displayAvatarURL() 
             })
             .setTimestamp();

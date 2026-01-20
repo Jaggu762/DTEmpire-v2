@@ -1,13 +1,13 @@
 {
   "bot": {
-    "name": "DTEmpire",
+    "name": "DemiseEmpire",
     "version": "2.8.0",
     "ownerId": "564029689233014803",
     "prefix": "^",
     "token": "{{BOT_TOKEN}}",
     "embedColor": "#0061ff",
     "admins": ["564029689233014803"],
-    "supportServer": "https://discord.gg/9V6jA76JMQ"
+    "supportServer": "https://discord.gg/r9QRUy6nrK"
   },
   "music": {
     "nodes": [{

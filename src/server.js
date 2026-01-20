@@ -166,18 +166,18 @@ app.get("/api/ai-identity", async (req, res) => {
 
   try {
     if (isAskName(prompt) && isDTEmpireModel(effectiveModel)) {
-      const reply = "I'm DTEmpire—your AI chat bot built to keep things fast and friendly.";
+      const reply = "I'm DemiseEmpire—your AI chat bot built to keep things fast and friendly.";
       MemoryStore.recordMessage(userId, prompt, reply, { topic: "name" });
       return res.json({ status: "success", text: reply, source: "identity", model: "nova-micro" });
     }
     if (isAskMaker(prompt) && isDTEmpireModel(effectiveModel)) {
-      const reply = "I was crafted by DargoTamber.";
+      const reply = "I was crafted by Jaggu762.";
       MemoryStore.recordMessage(userId, prompt, reply, { topic: "maker" });
       return res.json({ status: "success", text: reply, source: "identity", model: "nova-micro" });
     }
 
     if (isAskBornDate(prompt) && isDTEmpireModel(effectiveModel)) {
-      const reply = "I was made on Dec 27, 2025 by DargoTambe from DTEmpire.";
+      const reply = "I was made on Dec 27, 2025 by Jaggu762 from DemiseEmpire.";
       MemoryStore.recordMessage(userId, prompt, reply, { topic: "born" });
       return res.json({ status: "success", text: reply, source: "identity", model: "nova-micro" });
     }
@@ -218,18 +218,18 @@ app.all("/api/ai-smart", async (req, res) => {
   try {
     // Identity shortcuts inside smart too
     if (isAskName(prompt) && isDTEmpireModel(effectiveModel)) {
-      const reply = "I'm DTEmpire—your AI chat bot built to keep things fast and friendly.";
+      const reply = "I'm DemiseEmpire—your AI chat bot built to keep things fast and friendly.";
       MemoryStore.recordMessage(userId, prompt, reply, { topic: "name" });
       return res.json({ status: "success", text: reply, source: "identity", model: "nova-micro" });
     }
     if (isAskMaker(prompt) && isDTEmpireModel(effectiveModel)) {
-      const reply = "I was crafted by DargoTamber.";
+      const reply = "I was crafted by Jaggu762.";
       MemoryStore.recordMessage(userId, prompt, reply, { topic: "maker" });
       return res.json({ status: "success", text: reply, source: "identity", model: "nova-micro" });
     }
 
     if (isAskBornDate(prompt) && isDTEmpireModel(effectiveModel)) {
-      const reply = "I was made on Dec 27, 2025 by DargoTambe from DTEmpire.";
+      const reply = "I was made on Dec 27, 2025 by Jaggu762 from DemiseEmpire.";
       MemoryStore.recordMessage(userId, prompt, reply, { topic: "born" });
       return res.json({ status: "success", text: reply, source: "identity", model: "nova-micro" });
     }
