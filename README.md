@@ -367,9 +367,9 @@ See the [LICENSE](LICENSE) file for details.
 
 **Jaggu762**
 
-* GitHub: [https://github.com/hyperdargo](https://github.com/hyperdargo)
-* Discord: Jaggu762
-* Website: [https://ankitgupta.com.np](https://ankitgupta.com.np)
+* GitHub: [https://github.com/jaggu762](https://github.com/jaggu762)
+* Discord: [Jaggu762](https://discord.gg/r9QRUy6nrK)
+* Website: [https://DEAD_FOR_NOW](https://jitendhull.tech)
 
 ---
 
