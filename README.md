@@ -1,4 +1,10 @@
 <p align="center">
+  This is just a fork of Original DTEmpireBot so you can check it out there. It is modified for personal usage.
+</p>
+
+
+
+<p align="center">
   <img src="https://i.imgur.com/exDGDGc.png" alt="DTEmpire Banner" />
 </p>
 
