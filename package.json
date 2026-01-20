@@ -1,7 +1,7 @@
 {
   "name": "dtempire-v2",
   "version": "2.6.9",
-  "description": "DTEmpire Discord Bot v2.6.9",
+  "description": "DemiseEmpire Discord Bot v2.6.9",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
@@ -21,6 +21,6 @@
     "spotify-url-info": "^3.2.2",
     "uuid": "^9.0.1"
   },
-  "author": "DargoTamber",
+  "author": "Jaggu762",
   "license": "MIT"
 }

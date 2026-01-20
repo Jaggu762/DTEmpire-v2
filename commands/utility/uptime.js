@@ -26,7 +26,7 @@ module.exports = {
         
         const embed = new EmbedBuilder()
             .setColor('#0061ff')
-            .setTitle('🚀 DTEmpire Status & Uptime')
+            .setTitle('🚀 DemiseEmpire Status & Uptime')
             .setDescription(`**Version:** ${client.botInfo.version}\n**Creator:** ${client.botInfo.creator}`)
             .addFields(
                 { name: '⏰ Uptime', value: uptimeStr, inline: true },
@@ -41,7 +41,7 @@ module.exports = {
                 { name: '📅 Started At', value: `<t:${Math.floor(client.botInfo.startedAt / 1000)}:R>`, inline: true }
             )
             .setFooter({ 
-                text: `DTEmpire v${client.botInfo.version} | Created by DargoTamber`,
+                text: `DemiseEmpire v${client.botInfo.version} | Created by Jaggu762`,
                 iconURL: client.user.displayAvatarURL() 
             })
             .setTimestamp();
