@@ -9,10 +9,10 @@
 </p>
 
 <p align="center">
-  <a href="https://dsc.gg/dtempirev2">
+  <a href="https://discord.gg/jWMyFzSHeC">
     <img src="https://img.shields.io/badge/Invite-DTEmpire-blue?style=for-the-badge&logo=discord" />
   </a>
-  <a href="https://discord.gg/r9QRUy6nrK">
+  <a href="https://discord.gg/jWMyFzSHeC">
     <img src="https://img.shields.io/badge/Support-Server-purple?style=for-the-badge&logo=discord" />
   </a>
 </p>
@@ -354,5 +354,6 @@ See the [LICENSE](LICENSE) file for details.
 <p align="center">
   DTEmpire v2.7.2 • Built with ❤️ for the Discord community
 </p>
+
 
 
